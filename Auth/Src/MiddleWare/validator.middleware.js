@@ -24,8 +24,8 @@ const registerUserValidations = [
         .withMessage("Username must be a string")
         .isLength({ min: 3, max: 30 })
         .withMessage("Username must be between 3 and 30 characters long")
-        .isAlphanumeric()
-        .withMessage("Username must contain only letters and numbers"),
+        .matches(/^[a-zA-Z0-9_]+$/)
+        .withMessage("Username must contain only letters, numbers, and underscores"),
 
     // email validation
     body("email")
@@ -47,8 +47,16 @@ const registerUserValidations = [
         .matches(/[@$!%*#?&]/)
         .withMessage("Password must contain at least one special character"),
 
+    // normalize fullName from fullname if provided
+    (req, res, next) => {
+        if (req.body && req.body.fullname && !req.body.fullName) {
+            req.body.fullName = req.body.fullname;
+        }
+        next();
+    },
+
     // first name validation
-    body("fullname.firstName")
+    body("fullName.firstName")
         .notEmpty()
         .withMessage("First name is required")
         .isString()
@@ -57,7 +65,7 @@ const registerUserValidations = [
         .withMessage("First name must be between 2 and 50 characters long"),
 
     // last name validation
-    body("fullname.lastName")
+    body("fullName.lastName")
         .notEmpty()
         .withMessage("Last name is required")
         .isString()

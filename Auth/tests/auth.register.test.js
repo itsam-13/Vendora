@@ -30,7 +30,7 @@ describe('POST /auth/register', () => {
 
   it('should successfully register a new user and return status 201', async () => {
     const response = await request(app)
-      .post('/auth/register')
+      .post('/api/auth/register')
       .send(validUserData);
 
     expect(response.status).toBe(201);
@@ -44,7 +44,7 @@ describe('POST /auth/register', () => {
     expect(response.body.user).not.toHaveProperty('password');
 
     // Verify user is saved in the in-memory database
-    const savedUser = await userModel.findOne({ email: validUserData.email.toLowerCase() });
+    const savedUser = await userModel.findOne({ email: validUserData.email.toLowerCase() }).select('+password');
     expect(savedUser).not.toBeNull();
     expect(savedUser.username).toBe(validUserData.username.toLowerCase());
     
@@ -57,7 +57,7 @@ describe('POST /auth/register', () => {
   it('should return 400 if required fields are missing', async () => {
     // Missing email
     const resNoEmail = await request(app)
-      .post('/auth/register')
+      .post('/api/auth/register')
       .send({
         username: 'noemail',
         password: 'Password@123',
@@ -67,7 +67,7 @@ describe('POST /auth/register', () => {
 
     // Missing password
     const resNoPass = await request(app)
-      .post('/auth/register')
+      .post('/api/auth/register')
       .send({
         username: 'nopass',
         email: 'nopass@example.com',
@@ -77,7 +77,7 @@ describe('POST /auth/register', () => {
 
     // Missing fullName
     const resNoName = await request(app)
-      .post('/auth/register')
+      .post('/api/auth/register')
       .send({
         username: 'noname',
         email: 'noname@example.com',
@@ -97,7 +97,7 @@ describe('POST /auth/register', () => {
     };
 
     const response = await request(app)
-      .post('/auth/register')
+      .post('/api/auth/register')
       .send(duplicateEmailUser);
 
     expect(response.status).toBe(409);
@@ -115,7 +115,7 @@ describe('POST /auth/register', () => {
     };
 
     const response = await request(app)
-      .post('/auth/register')
+      .post('/api/auth/register')
       .send(duplicateUsernameUser);
 
     expect(response.status).toBe(409);
