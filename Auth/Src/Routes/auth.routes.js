@@ -15,4 +15,7 @@ router.post('/login', validators.loginUserValidations, authController.loginUser)
 // Get Current User Route
 router.get('/me', authMiddleware, authController.getCurrentUser);
 
+// Logout Route
+router.get('/logout', authMiddleware, authController.logoutUser);
+
 module.exports = router;

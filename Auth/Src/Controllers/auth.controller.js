@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const userModel = require('../Model/user.model');
+const redis = require('../DataBase/redis')
 
 async function registerUser(req, res) {
   try {
@@ -156,5 +157,35 @@ async function getCurrentUser(req, res) {
   });
 }
 
+async function logoutUser(req, res) {
 
-module.exports = { registerUser, loginUser, getCurrentUser };
+  try {
+
+    const token = req.cookies.token;
+
+    if (token) {
+      await redis.set(`blacklist:${token}`, "true", 'EX', 60 * 60 * 24);
+    }
+
+    // Clear the token cookie
+    res.clearCookie('token', {
+      httpOnly: true,
+      secure: true,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Logged out successfully',
+    });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal Server Error',
+    });
+  }
+}
+
+
+module.exports = { registerUser, loginUser, getCurrentUser, logoutUser };
