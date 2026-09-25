@@ -77,6 +77,46 @@ const registerUserValidations = [
 
 ]
 
+const loginUserValidations = [
+
+    // email validation (optional, but must be valid format if provided)
+    body('email')
+        .optional({ values: 'falsy' })
+        .isEmail()
+        .withMessage('Email is not valid')
+        .normalizeEmail()
+        .trim(),
+
+    // username validation (optional, but must be valid format if provided)
+    body('username')
+        .optional({ values: 'falsy' })
+        .isString()
+        .withMessage('Username must be a string')
+        .isLength({ min: 3, max: 30 })
+        .withMessage('Username must be between 3 and 30 characters long')
+        .matches(/^[a-zA-Z0-9_]+$/)
+        .withMessage('Username must contain only letters, numbers, and underscores'),
+
+    // password validation (required)
+    body('password')
+        .notEmpty()
+        .withMessage('Password is required'),
+
+    // custom: require at least one of email or username
+    (req, res, next) => {
+        const { email, username } = req.body;
+        if (!email && !username) {
+            return res.status(400).json({
+                errors: [{ msg: 'Either email or username is required' }]
+            });
+        }
+        next();
+    },
+
+    responseWithvalidationError
+]
+
 module.exports = {
-    registerUserValidations
+    registerUserValidations,
+    loginUserValidations
 }
