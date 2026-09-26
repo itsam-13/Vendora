@@ -6,8 +6,14 @@ const addSchema = new mongoose.Schema({
     city: String,
     state: String,
     zipCode: String,
-    country: String
-})
+    pincode: String,
+    phone: String,
+    country: String,
+    isDefault: {
+        type: Boolean,
+        default: false
+    }
+}, { timestamps: true });
 
 const userSchema = new mongoose.Schema({
     username: {
@@ -50,6 +56,6 @@ const userSchema = new mongoose.Schema({
 
 })
 
-const userModel = mongoose.model('User', userSchema); 
+const userModel = mongoose.model('User', userSchema);
 
 module.exports = userModel

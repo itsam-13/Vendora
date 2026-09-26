@@ -47,6 +47,12 @@ const registerUserValidations = [
         .matches(/[@$!%*#?&]/)
         .withMessage("Password must contain at least one special character"),
 
+    //role validation
+    body("role")
+        .optional()
+        .isIn(['user', 'seller'])
+        .withMessage("Role must be one of user or seller"),
+
     // normalize fullName from fullname if provided
     (req, res, next) => {
         if (req.body && req.body.fullname && !req.body.fullName) {
@@ -116,7 +122,85 @@ const loginUserValidations = [
     responseWithvalidationError
 ]
 
+const addAddressValidations = [
+    // Normalize field aliases if provided
+    (req, res, next) => {
+        if (req.body) {
+            if (req.body.zipCode && !req.body.pincode) {
+                req.body.pincode = req.body.zipCode;
+            }
+            if (req.body.pincode && !req.body.zipCode) {
+                req.body.zipCode = req.body.pincode;
+            }
+            if (req.body.phoneNumber && !req.body.phone) {
+                req.body.phone = req.body.phoneNumber;
+            }
+        }
+        next();
+    },
+
+    // street validation
+    body("street")
+        .notEmpty()
+        .withMessage("Street is required")
+        .isString()
+        .withMessage("Street must be a string")
+        .trim(),
+
+    // city validation
+    body("city")
+        .notEmpty()
+        .withMessage("City is required")
+        .isString()
+        .withMessage("City must be a string")
+        .trim(),
+
+    // state validation
+    body("state")
+        .notEmpty()
+        .withMessage("State is required")
+        .isString()
+        .withMessage("State must be a string")
+        .trim(),
+
+    // pincode validation: required and valid 6-digit number
+    body("pincode")
+        .notEmpty()
+        .withMessage("Pincode is required")
+        .isString()
+        .withMessage("Pincode must be a string")
+        .trim()
+        .matches(/^\d{6}$/)
+        .withMessage("Pincode must be a valid 6-digit number"),
+
+    // phone validation: required and valid 10-digit number (supports optional country code like +91)
+    body("phone")
+        .notEmpty()
+        .withMessage("Phone number is required")
+        .isString()
+        .withMessage("Phone number must be a string")
+        .trim()
+        .matches(/^(\+91[\-\s]?)?[0-9]{10}$/)
+        .withMessage("Phone number must be a valid 10-digit number"),
+
+    // country validation (optional)
+    body("country")
+        .optional({ values: 'falsy' })
+        .isString()
+        .withMessage("Country must be a string")
+        .trim(),
+
+    // isDefault validation (optional)
+    body("isDefault")
+        .optional()
+        .isBoolean()
+        .withMessage("isDefault must be a boolean"),
+
+    responseWithvalidationError
+];
+
 module.exports = {
     registerUserValidations,
-    loginUserValidations
-}
+    loginUserValidations,
+    addAddressValidations
+};

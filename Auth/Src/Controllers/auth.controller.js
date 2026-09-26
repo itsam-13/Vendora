@@ -1,11 +1,12 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const userModel = require('../Model/user.model');
-const redis = require('../DataBase/redis')
+const redis = require('../DataBase/redis');
 
 async function registerUser(req, res) {
   try {
-    const { username, email, password } = req.body;
+    const { username, email, password, role } = req.body;
     const fullName = req.body.fullName || req.body.fullname || {};
     const { firstName, lastName } = fullName;
 
@@ -33,10 +34,8 @@ async function registerUser(req, res) {
       username: normalizedUsername,
       email: normalizedEmail,
       password: hashedPassword,
-      fullName: {
-        firstName,
-        lastName
-      }
+      fullName: { firstName, lastName },
+      role: role || 'user'
     });
 
     // Generating JWT Token
@@ -188,4 +187,148 @@ async function logoutUser(req, res) {
 }
 
 
-module.exports = { registerUser, loginUser, getCurrentUser, logoutUser };
+async function getUserAddresses(req, res) {
+  try {
+    const id = req.user.id || req.user._id;
+    const user = await userModel.findById(id).select('address');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Addresses fetched successfully',
+      user
+    });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal Server Error'
+    });
+  }
+}
+
+async function addUserAddress(req, res) {
+  try {
+    const id = req.user.id || req.user._id;
+
+    const { street, city, state, pin, pincode, phone, country } = req.body;
+    const finalPin = pincode || pin || req.body.zipCode;
+    let isDefault = req.body.isDefault === true || req.body.isDefault === 'true';
+
+    // Fetch user first to check existing addresses
+    const user = await userModel.findById(id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // If user has no existing addresses, the first address automatically becomes default
+    if (!user.address || user.address.length === 0) {
+      isDefault = true;
+    }
+
+    // If this address is set to default, unmark other addresses
+    if (isDefault && user.address && user.address.length > 0) {
+      user.address.forEach(addr => {
+        addr.isDefault = false;
+      });
+    }
+
+    const newAddress = {
+      street,
+      city,
+      state,
+      pincode: finalPin,
+      zipCode: finalPin,
+      phone,
+      country: country || 'India',
+      isDefault
+    };
+
+    user.address.push(newAddress);
+    await user.save();
+
+    const savedAddress = user.address[user.address.length - 1];
+
+    return res.status(201).json({
+      success: true,
+      message: 'Address added successfully',
+      address: savedAddress,
+      addresses: user.address
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal Server Error'
+    });
+  }
+}
+
+async function deleteAddress(req, res) {
+  try {
+    const id = req.user.id || req.user._id;
+    const { addressID } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(addressID)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid address ID format'
+      });
+    }
+
+    const user = await userModel.findById(id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    const addressIndex = user.address.findIndex(addr => addr._id.toString() === addressID);
+    if (addressIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Address not found'
+      });
+    }
+
+    user.address.splice(addressIndex, 1);
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Address removed successfully',
+      addresses: user.address
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal Server Error'
+    });
+  }
+}
+
+
+
+module.exports = {
+  registerUser,
+  loginUser,
+  getCurrentUser,
+  logoutUser,
+  getUserAddresses,
+  addUserAddress,
+  deleteAddress,
+};
