@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "jest --runInBand --detectOpenHandles",
     "start": "node server.js",
     "dev": "nodemon server.js"
   },
@@ -16,10 +16,21 @@
     "cookie-parser": "^1.4.7",
     "dotenv": "^18.0.4",
     "express": "^5.2.1",
+    "express-validator": "^7.3.2",
+    "imagekit": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.10.2"
+    "mongoose": "^9.10.2",
+    "multer": "^2.4.0",
+    "uuid": "^14.0.2"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "jest": "^30.5.2",
+    "mongodb-memory-server": "^11.3.0",
+    "nodemon": "^3.1.14",
+    "supertest": "^7.3.0"
+  },
+  "allowScripts": {
+    "uuid@8.3.2": true,
+    "uuid@14.0.2": true
   }
 }
