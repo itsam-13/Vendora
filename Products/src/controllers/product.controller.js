@@ -173,28 +173,28 @@ async function updateProduct(req, res) {
             });
         }
 
-    const allowUpdates = ["title", "description", "price"]
-    for (const key of Object.keys()(req.body)) {
-        if (allowUpdates.includes(key)) {
-            if (key === "price" && typeof req.body.price === 'Object') {
-                if (req.body.price.amount !== undefined) {
-                    product[key].amount = Number(req.body.price.amount);
+        const allowUpdates = ["title", "description", "price"]
+        for (const key of Object.keys()(req.body)) {
+            if (allowUpdates.includes(key)) {
+                if (key === "price" && typeof req.body.price === 'Object') {
+                    if (req.body.price.amount !== undefined) {
+                        product[key].amount = Number(req.body.price.amount);
+                    }
+                    if (req.body.price.currency !== undefined) {
+                        product[key].currency = Number(req.body.price.currency)
+                    }
                 }
-                if (req.body.price.currency !== undefined) {
-                    product[key].currency = Number(req.body.price.currency)
+                else {
+                    product[key] = req.body[key];
                 }
-            }
-            else {
-                product[key] = req.body[key];
             }
         }
-    }
 
-    await product.save()
-    return res.status(200).json({
-        message: "Product updated successfully",
-        product: product
-    });
+        await product.save()
+        return res.status(200).json({
+            message: "Product updated successfully",
+            product: product
+        });
     } catch (error) {
         if (process.env.NODE_ENV !== "test") {
             console.error("Error updating product:", error);
@@ -209,25 +209,25 @@ async function updateProduct(req, res) {
 
 async function deleteProduct(req, res) {
 
-    const {id} = req.params;
+    const { id } = req.params;
 
-    if(!mongoose.Types.ObjectId.isValid(id)){
+    if (!mongoose.Types.ObjectId.isValid(id)) {
         return res.status(400).json({
             success: false,
             message: "Invalid product ID"
         })
     }
-    
+
     const product = await productModel.findById(id);
 
-    if(!product){
+    if (!product) {
         return res.status(404).json({
             success: false,
             message: "Product not found"
         })
     }
 
-    if(req.user?.id !== product.seller.toString()){
+    if (req.user?.id !== product.seller.toString()) {
         return res.status(403).json({
             success: false,
             message: "You are not authorized to delete this product"
@@ -239,13 +239,37 @@ async function deleteProduct(req, res) {
         success: true,
         message: "Product deleted successfully"
     });
-    
+
 }
+
+async function getProductsBySeller(req, res) {
+    try {
+        const sellerId = req.user.id;
+
+        const {skip = 0, limit = 20} = req.query;
+        const products = await productModel.find({ seller: sellerId }).skip(Number(skip)).limit(Math.min(Number(limit),20))
+
+        return res.status(200).json({
+            success: true,
+            message: "Seller products fetched successfully",
+            products
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error while fetching seller products",
+            error: error.message
+        });
+    }
+}
+
 
 module.exports = {
     createProduct,
     getProducts,
     getProductById,
     updateProduct,
-    deleteProduct
+    deleteProduct,
+    getProductsBySeller
 };
+

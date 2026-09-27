@@ -822,6 +822,79 @@ describe("DELETE /api/products/:id - Delete Product API (SELLER)", () => {
     });
 });
 
+// ─── Test Suite: GET /api/products/seller ─────────────────────────────────────
+
+describe("GET /api/products/seller - Get Seller Products API (SELLER)", () => {
+    let sellerUser;
+    let otherSeller;
+    let regularUser;
+
+    beforeEach(async () => {
+        sellerUser = generateSellerToken({ username: "primaryseller" });
+        otherSeller = generateSellerToken({ username: "otherseller" });
+        regularUser = generateUserToken({ username: "buyer" });
+    });
+
+    it("returns 401 Unauthorized if no token is provided", async () => {
+        const response = await request(app).get("/api/products/seller");
+
+        expect(response.status).toBe(401);
+        expect(response.body).toHaveProperty("success", false);
+    });
+
+    it("returns 401 Unauthorized if a non-seller user attempts access", async () => {
+        const response = await request(app)
+            .get("/api/products/seller")
+            .set("Authorization", `Bearer ${regularUser.token}`);
+
+        expect(response.status).toBe(401);
+        expect(response.body).toHaveProperty("success", false);
+    });
+
+    it("returns 200 and an empty array when the seller has no products", async () => {
+        const response = await request(app)
+            .get("/api/products/seller")
+            .set("Authorization", `Bearer ${sellerUser.token}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveProperty("success", true);
+        expect(response.body.products).toBeInstanceOf(Array);
+        expect(response.body.products).toHaveLength(0);
+    });
+
+    it("returns 200 and only products belonging to the authenticated seller", async () => {
+        await Product.create([
+            {
+                title: "Seller 1 Product A",
+                price: { amount: 1000, currency: "INR" },
+                seller: sellerUser.sellerId
+            },
+            {
+                title: "Seller 1 Product B",
+                price: { amount: 2000, currency: "INR" },
+                seller: sellerUser.sellerId
+            },
+            {
+                title: "Seller 2 Product",
+                price: { amount: 3000, currency: "INR" },
+                seller: otherSeller.sellerId
+            }
+        ]);
+
+        const response = await request(app)
+            .get("/api/products/seller")
+            .set("Authorization", `Bearer ${sellerUser.token}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveProperty("success", true);
+        expect(response.body.products).toHaveLength(2);
+        response.body.products.forEach((prod) => {
+            expect(prod.seller.toString()).toBe(sellerUser.sellerId);
+        });
+    });
+});
+
+
 
 
 
