@@ -109,7 +109,48 @@ async function getProducts(req, res) {
     }
 }
 
+async function getProductById(req, res) {
+    try {
+        const { id } = req.params;
+
+        if (!id) {
+            return res.status(400).json({
+                success: false,
+                message: "Product ID is required"
+            });
+        }
+
+        const product = await productModel.findById(id);
+        
+        if (!product) {
+            return res.status(404).json({
+                success: false,
+                message: "Product not found"
+            });
+        }
+        return res.status(200).json({
+            success: true,
+            message: "Product fetched successfully",
+            product:product
+        });
+    } catch (error) {
+        if (process.env.NODE_ENV !== "test") {
+            console.error("Error fetching product:", error);
+        }
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error while fetching product",
+            error: error.message
+        });
+    }
+}
+
+
+
+
+
 module.exports = {
     createProduct,
-    getProducts
+    getProducts,
+    getProductById
 };

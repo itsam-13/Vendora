@@ -31,4 +31,8 @@ router.post(
 //GET -> /api/products
 router.get("/", productController.getProducts);
 
+//GET -> /api/products/:id
+router.get("/:id", productController.getProductById);
+
+
 module.exports = router;

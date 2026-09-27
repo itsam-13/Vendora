@@ -590,3 +590,92 @@ describe("GET /api/products - Get Products API", () => {
     });
 });
 
+// ─── Test Suite: GET /api/products/:id ───────────────────────────────────────
+
+describe("GET /api/products/:id - Get Product By ID API", () => {
+    const mockSellerId = new mongoose.Types.ObjectId();
+
+    it("returns 200 and product data for a valid existing ID", async () => {
+        const product = await Product.create({
+            title: "Apple MacBook Pro M3",
+            description: "16-inch Space Black laptop with M3 Max chip",
+            price: { amount: 249999, currency: "INR" },
+            seller: mockSellerId,
+            images: [
+                {
+                    url: "https://example.com/macbook.jpg",
+                    thumbnail: "https://example.com/thumb_macbook.jpg",
+                    id: "mb_img_01"
+                }
+            ]
+        });
+
+        const response = await request(app).get(`/api/products/${product._id}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveProperty("success", true);
+        expect(response.body).toHaveProperty("message", "Product fetched successfully");
+        expect(response.body.product).toMatchObject({
+            _id: product._id.toString(),
+            title: "Apple MacBook Pro M3",
+            description: "16-inch Space Black laptop with M3 Max chip",
+            price: {
+                amount: 249999,
+                currency: "INR"
+            },
+            seller: mockSellerId.toString()
+        });
+        expect(response.body.product.images).toHaveLength(1);
+        expect(response.body.product.images[0].url).toBe("https://example.com/macbook.jpg");
+    });
+
+    it("is publicly accessible without requiring an authentication token", async () => {
+        const product = await Product.create({
+            title: "Noise Cancelling Earbuds",
+            price: { amount: 4999, currency: "INR" },
+            seller: mockSellerId
+        });
+
+        const response = await request(app).get(`/api/products/${product._id}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body.success).toBe(true);
+        expect(response.body.product._id).toBe(product._id.toString());
+    });
+
+    it("returns 404 when product ID is a valid ObjectId but does not exist in database", async () => {
+        const nonExistentId = new mongoose.Types.ObjectId();
+
+        const response = await request(app).get(`/api/products/${nonExistentId}`);
+
+        expect(response.status).toBe(404);
+        expect(response.body).toHaveProperty("success", false);
+        expect(response.body).toHaveProperty("message", "Product not found");
+    });
+
+    it("returns 500 when product ID is malformed / invalid ObjectId format", async () => {
+        const response = await request(app).get("/api/products/invalid-object-id");
+
+        expect(response.status).toBe(500);
+        expect(response.body).toHaveProperty("success", false);
+        expect(response.body).toHaveProperty("message", "Internal server error while fetching product");
+        expect(response.body).toHaveProperty("error");
+    });
+
+    it("returns 500 when database operation throws an unexpected error", async () => {
+        const validId = new mongoose.Types.ObjectId();
+        const findByIdSpy = jest.spyOn(Product, "findById").mockRejectedValueOnce(
+            new Error("Database connection failure")
+        );
+
+        const response = await request(app).get(`/api/products/${validId}`);
+
+        expect(response.status).toBe(500);
+        expect(response.body).toHaveProperty("success", false);
+        expect(response.body).toHaveProperty("message", "Internal server error while fetching product");
+        expect(response.body).toHaveProperty("error", "Database connection failure");
+
+        findByIdSpy.mockRestore();
+    });
+});
+
