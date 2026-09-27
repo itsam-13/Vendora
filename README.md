@@ -9,7 +9,7 @@
 [![MongoDB](https://img.shields.io/badge/MongoDB-Mongoose%20v9-green.svg?style=flat-square&logo=mongodb)](https://mongoosejs.com/)
 [![Redis](https://img.shields.io/badge/Redis-ioredis%20v6-red.svg?style=flat-square&logo=redis)](https://redis.io/)
 [![ImageKit](https://img.shields.io/badge/ImageKit-Media%20CDN-orange.svg?style=flat-square)](https://imagekit.io/)
-[![Tests](https://img.shields.io/badge/tests-47%20passed%20%7C%206%20suites-brightgreen.svg?style=flat-square&logo=jest)](https://jestjs.io/)
+[![Tests](https://img.shields.io/badge/tests-84%20passed%20%7C%206%20suites-brightgreen.svg?style=flat-square&logo=jest)](https://jestjs.io/)
 [![License: ISC](https://img.shields.io/badge/License-ISC-yellow.svg?style=flat-square)](LICENSE)
 
 </div>
@@ -22,10 +22,10 @@
 
 ### 🚀 Current Development Progress
 
-Vendora currently comprises two production-ready microservices:
+Vendora currently comprises two fully-implemented microservices:
 
 1. **Authentication & Identity Service (`Port 3000`)**: Complete user credential management, dual token transport (HTTP-only cookies and Bearer headers), distributed Redis token blacklisting on logout, role-based access control (`user` and `seller`), and user shipping address book management.
-2. **Product Catalog & Media Service (`Port 3001`)**: Product schema modeling, role-restricted product creation for verified sellers/admins, in-memory multipart streaming with Multer, automated cloud image processing and CDN delivery via **ImageKit**, input sanitization via express-validator, and atomic failure handling.
+2. **Product Catalog & Media Service (`Port 3001`)**: End-to-end product lifecycle management, role-restricted creation (`seller`/`admin`), in-memory multipart streaming with Multer, automated cloud image processing and CDN delivery via **ImageKit**, public catalog browsing with compound full-text search (`?q=`), price range filters (`minPrice`/`maxPrice`), configurable pagination (`skip`/`limit`), single product details by ID, seller-isolated updates (`PATCH`), seller-isolated deletions (`DELETE`), and isolated seller inventory listing (`GET /api/products/seller`).
 
 ---
 
@@ -63,6 +63,28 @@ Vendora currently comprises two production-ready microservices:
   - Parallel cloud upload to **ImageKit** with unique UUID naming.
   - Stores structured media payloads including full `url`, optimized `thumbnail`, and ImageKit file `id`.
 
+- **Public Catalog Discovery, Full-Text Search & Filtering**
+  - Completely public access without requiring authentication tokens.
+  - MongoDB compound full-text index on `{ title: "text", description: "text" }` supporting multi-word keyword search (`?q=query`).
+  - Flexible price range querying (`?minPrice=1000&maxPrice=5000`).
+  - High-performance pagination with `skip` (default 0) and `limit` (default 20, max 20).
+  - Seamless combination of text query, price boundaries, and pagination in a single request.
+
+- **Product Details by ID**
+  - Public endpoint `GET /api/products/:id` returning detailed product information, price, images, and seller reference.
+  - Proper error semantics with `404 Not Found` for non-existent products and `500` for malformed ObjectIds.
+
+- **Seller Ownership Isolation (Updates & Deletion)**
+  - Protected endpoints requiring `seller` role.
+  - Strict ownership validation: sellers can **only** update or delete products they personally created (`product.seller == req.user.id`).
+  - Unauthorized vendors attempting modifications on products owned by another seller receive an explicit `403 Forbidden` response.
+  - Safe field whitelisting on updates (`title`, `description`, `price`), supporting nested price amounts and currencies.
+  - Atomic document deletion from MongoDB.
+
+- **Dedicated Seller Inventory Listing**
+  - Endpoint `GET /api/products/seller` allowing authenticated sellers to view their own product catalog.
+  - Built-in pagination (`skip` and `limit` capped at 20) with strict tenant isolation.
+
 - **Flexible Input Sanitization & Normalization**
   - Seamlessly handles both `application/json` and `multipart/form-data` request formats.
   - Automatically normalizes bracketed or nested price fields (`priceAmount`, `price.amount`, `price[amount]`, `price.currency`, `price[currency]`).
@@ -75,7 +97,7 @@ Vendora currently comprises two production-ready microservices:
 ### 🧪 Automated Testing & Isolated CI/CD
 - **100% In-Memory Test Automation**: Powered by Jest, Supertest, and `mongodb-memory-server`.
 - **Offline External Service Mocks**: ImageKit SDK and Redis instances are fully mocked or fixture-isolated during test suites.
-- **47 Passed Tests across 6 suites** with zero flaky cloud dependencies.
+- **84 Passed Tests across 6 suites** (34 Auth + 50 Products) with zero flaky cloud dependencies.
 
 ---
 
@@ -86,7 +108,7 @@ Vendora currently comprises two production-ready microservices:
 | **Runtime** | Node.js | Asynchronous, event-driven JavaScript runtime (v18+) |
 | **Framework** | Express.js 5.x | Next-generation web framework with native async error propagation |
 | **Primary Database** | MongoDB | Document database for accounts, addresses, and product catalog |
-| **ODM** | Mongoose 9.x | Schema modeling, validations, references, and hooks |
+| **ODM** | Mongoose 9.x | Schema modeling, compound text indexing, validations, references, and hooks |
 | **Caching & Invalidation** | Redis (ioredis 6.x) | In-memory distributed store for JWT token revocation blacklists |
 | **Media Storage & CDN** | ImageKit SDK 6.x | Cloud media storage, asset optimization, and CDN delivery |
 | **File Processing** | Multer 2.x | High-throughput in-memory multipart form data streaming |
@@ -133,7 +155,7 @@ Vendora/
     ├── src/
     │   ├── app.js                  # Express app setup and product routing
     │   ├── controllers/
-    │   │   └── product.controller.js # Product creation logic & ImageKit coordination
+    │   │   └── product.controller.js # Product CRUD, search, filter, seller isolation & ImageKit
     │   ├── database/
     │   │   └── db.js               # MongoDB connection handler with DNS fallback
     │   ├── middlewares/
@@ -141,14 +163,14 @@ Vendora/
     │   │   ├── multer.middleware.js # In-memory multipart upload parser & filter
     │   │   └── validator.middleware.js # Input sanitization and validation schemas
     │   ├── models/
-    │   │   └── product.model.js    # Product Mongoose schema
+    │   │   └── product.model.js    # Product Mongoose schema with compound text index
     │   ├── routes/
     │   │   └── product.routes.js   # Product route definitions (/api/products)
     │   └── services/
     │       └── imagekit.service.js # ImageKit SDK integration and cloud uploader
-    └── tests/                      # Automated integration test suites (13 tests)
+    └── tests/                      # Automated integration test suites (50 tests)
         ├── setupDb.js              # In-memory MongoDB lifecycle fixtures
-        └── product.test.js         # Product creation, RBAC, Multer & ImageKit tests
+        └── product.test.js         # Full product CRUD, search, pagination, RBAC & ImageKit tests
 ```
 
 ---
@@ -223,8 +245,15 @@ All product endpoints are exposed under `/api/products`.
 | Method | Endpoint | Auth Required | Allowed Roles | Content-Type | Description |
 | :--- | :--- | :---: | :---: | :--- | :--- |
 | `POST` | `/api/products` | ✅ Yes | `admin`, `seller` | `application/json` or `multipart/form-data` | Creates a new product with optional image uploads. |
+| `GET` | `/api/products` | ❌ No | Public | N/A | Browses product catalog with full-text search, price filtering, and pagination. |
+| `GET` | `/api/products/seller` | ✅ Yes | `seller` | N/A | Retrieves all products belonging to the authenticated seller. |
+| `GET` | `/api/products/:id` | ❌ No | Public | N/A | Fetches single product details by product ID. |
+| `PATCH` | `/api/products/:id` | ✅ Yes | `seller` (Owner) | `application/json` or `multipart/form-data` | Updates product details (restricted to owning seller). |
+| `DELETE` | `/api/products/:id` | ✅ Yes | `seller` (Owner) | N/A | Deletes product from catalog (restricted to owning seller). |
 
-#### `POST /api/products`
+---
+
+#### `POST /api/products` — Create Product
 
 **Headers:**
 - `Authorization: Bearer <SELLER_OR_ADMIN_JWT_TOKEN>` *(or `token` cookie)*
@@ -286,11 +315,6 @@ curl -X POST http://localhost:3001/api/products \
         "url": "https://ik.imagekit.io/vendora/products/uuid-watch_front.jpg",
         "thumbnail": "https://ik.imagekit.io/vendora/products/tr:n-media_library_thumbnail/uuid-watch_front.jpg",
         "id": "67471234_file_id_1"
-      },
-      {
-        "url": "https://ik.imagekit.io/vendora/products/uuid-watch_side.png",
-        "thumbnail": "https://ik.imagekit.io/vendora/products/tr:n-media_library_thumbnail/uuid-watch_side.png",
-        "id": "67471234_file_id_2"
       }
     ],
     "__v": 0
@@ -298,10 +322,196 @@ curl -X POST http://localhost:3001/api/products \
 }
 ```
 
-**Common Error Responses:**
-- `400 Bad Request`: Validation failure (missing title, non-positive price) or non-image file uploaded.
-- `401 Unauthorized`: Missing authentication token, expired/invalid JWT, or forbidden user role (e.g. standard `user`).
-- `500 Internal Server Error`: ImageKit upload failure or database write exception.
+---
+
+#### `GET /api/products` — Browse, Search & Filter Catalog (Public)
+
+Public endpoint for catalog discovery. Supports full-text search, price filtering, and pagination.
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+| :--- | :---: | :---: | :---: | :--- |
+| `q` | String | No | — | Full-text search keyword matching product `title` and `description`. |
+| `minPrice` | Number | No | — | Minimum price filter (`price.amount >= minPrice`). |
+| `maxPrice` | Number | No | — | Maximum price filter (`price.amount <= maxPrice`). |
+| `skip` | Number | No | `0` | Number of items to skip for pagination. |
+| `limit` | Number | No | `20` | Number of items to return per page (capped at `20`). |
+
+**Example: Search & Filtered Request**
+```bash
+curl -X GET "http://localhost:3001/api/products?q=keyboard&minPrice=1000&maxPrice=5000&skip=0&limit=10"
+```
+
+**Success Response (`200 OK`):**
+```json
+{
+  "success": true,
+  "message": "Products fetched successfully",
+  "products": [
+    {
+      "_id": "67471234abcd5678ef901234",
+      "title": "Keychron K2 Mechanical Keyboard",
+      "description": "Compact wireless mechanical keyboard with RGB backlighting",
+      "price": {
+        "amount": 2999,
+        "currency": "INR"
+      },
+      "seller": "67470000aaaa1111bbbb2222",
+      "images": []
+    }
+  ]
+}
+```
+
+---
+
+#### `GET /api/products/:id` — Get Product Details (Public)
+
+Retrieves full details of a specific product by its MongoDB ObjectId.
+
+**Example Request:**
+```bash
+curl -X GET http://localhost:3001/api/products/67471234abcd5678ef901234
+```
+
+**Success Response (`200 OK`):**
+```json
+{
+  "success": true,
+  "message": "Product fetched successfully",
+  "product": {
+    "_id": "67471234abcd5678ef901234",
+    "title": "Smart Watch Pro",
+    "description": "AMOLED display with fitness tracking",
+    "price": {
+      "amount": 4999,
+      "currency": "INR"
+    },
+    "seller": "67470000aaaa1111bbbb2222",
+    "images": [
+      {
+        "url": "https://ik.imagekit.io/vendora/products/uuid-watch_front.jpg",
+        "thumbnail": "https://ik.imagekit.io/vendora/products/tr:n-media_library_thumbnail/uuid-watch_front.jpg",
+        "id": "67471234_file_id_1"
+      }
+    ]
+  }
+}
+```
+
+**Error Responses:**
+- `404 Not Found`: `{ "success": false, "message": "Product not found" }`
+- `500 Internal Server Error`: Malformed ObjectId or database error.
+
+---
+
+#### `GET /api/products/seller` — Get Seller's Products (Seller Only)
+
+Retrieves only products belonging to the authenticated seller, enabling vendor inventory management.
+
+**Headers:**
+- `Authorization: Bearer <SELLER_TOKEN>` *(or `token` cookie)*
+
+**Query Parameters:**
+- `skip` (Number, default: `0`): Pagination offset.
+- `limit` (Number, default: `20`, max: `20`): Items per page.
+
+**Example Request:**
+```bash
+curl -X GET "http://localhost:3001/api/products/seller?skip=0&limit=10" \
+  -H "Authorization: Bearer <SELLER_TOKEN>"
+```
+
+**Success Response (`200 OK`):**
+```json
+{
+  "success": true,
+  "message": "Seller products fetched successfully",
+  "products": [
+    {
+      "_id": "67471234abcd5678ef901234",
+      "title": "Smart Watch Pro",
+      "price": { "amount": 4999, "currency": "INR" },
+      "seller": "67470000aaaa1111bbbb2222",
+      "images": []
+    }
+  ]
+}
+```
+
+---
+
+#### `PATCH /api/products/:id` — Update Product (Seller Owner Only)
+
+Updates an existing product. Only the seller who created the product is authorized to modify it.
+
+**Headers:**
+- `Authorization: Bearer <SELLER_TOKEN>` *(or `token` cookie)*
+- `Content-Type: application/json` or `multipart/form-data`
+
+**Request Body (Allowed fields: `title`, `description`, `price`):**
+```json
+{
+  "title": "Smart Watch Pro (Upgraded Edition)",
+  "price": {
+    "amount": 5499,
+    "currency": "INR"
+  }
+}
+```
+
+**Success Response (`200 OK`):**
+```json
+{
+  "message": "Product updated successfully",
+  "product": {
+    "_id": "67471234abcd5678ef901234",
+    "title": "Smart Watch Pro (Upgraded Edition)",
+    "description": "AMOLED display with fitness tracking",
+    "price": {
+      "amount": 5499,
+      "currency": "INR"
+    },
+    "seller": "67470000aaaa1111bbbb2222"
+  }
+}
+```
+
+**Error Responses:**
+- `400 Bad Request`: Invalid product ID format.
+- `401 Unauthorized`: Missing or invalid authentication token.
+- `403 Forbidden`: Authenticated seller does not own this product (`"You are not authorized to update this product"`).
+- `404 Not Found`: Product does not exist.
+
+---
+
+#### `DELETE /api/products/:id` — Delete Product (Seller Owner Only)
+
+Permanently removes a product from the database. Only the seller who created the product is authorized to delete it.
+
+**Headers:**
+- `Authorization: Bearer <SELLER_TOKEN>` *(or `token` cookie)*
+
+**Example Request:**
+```bash
+curl -X DELETE http://localhost:3001/api/products/67471234abcd5678ef901234 \
+  -H "Authorization: Bearer <SELLER_TOKEN>"
+```
+
+**Success Response (`200 OK`):**
+```json
+{
+  "success": true,
+  "message": "Product deleted successfully"
+}
+```
+
+**Error Responses:**
+- `400 Bad Request`: Invalid product ID format.
+- `401 Unauthorized`: Missing or invalid authentication token.
+- `403 Forbidden`: Authenticated seller does not own this product (`"You are not authorized to delete this product"`).
+- `404 Not Found`: Product does not exist.
 
 ---
 
@@ -346,6 +556,9 @@ const productSchema = new mongoose.Schema({
     }
   ]
 });
+
+// Compound full-text search index on title and description
+productSchema.index({ title: "text", description: "text" });
 ```
 
 ---
@@ -441,22 +654,35 @@ cd Products
 npm test
 ```
 ```text
-PASS  tests/product.test.js
+PASS tests/product.test.js
   POST /api/products/ - Create Product API
     Authentication and Role Authorization (3 tests)
     Request Validation (express-validator) (4 tests)
     Product Creation with JSON Payload (3 tests)
     Product Creation with Multer & ImageKit Image Uploads (3 tests)
+  GET /api/products - Get Products API
+    Basic Fetching & Public Access (3 tests)
+    Pagination (skip and limit) (5 tests)
+    Price Range Filtering (minPrice and maxPrice) (4 tests)
+    Text Search (q) (4 tests)
+    Combined Queries (Search + Price Filter + Pagination) (2 tests)
+    Error Handling (1 test)
+  GET /api/products/:id - Get Product By ID API (5 tests)
+  PATCH /api/products/:id - Update Product API (SELLER) (4 tests)
+  DELETE /api/products/:id - Delete Product API (SELLER) (5 tests)
+  GET /api/products/seller - Get Seller Products API (SELLER) (4 tests)
 
 Test Suites: 1 passed, 1 total
-Tests:       13 passed, 13 total
+Tests:       50 passed, 50 total
 Snapshots:   0 total
-Time:        1.356 s
+Time:        1.811 s
 ```
 
 ### Combined Test Summary
 - **Total Test Suites**: 6 passed, 6 total
-- **Total Tests**: 47 passed, 47 total (100% pass rate)
+- **Total Tests**: 84 passed, 84 total (100% pass rate)
+  - **Auth Service**: 34 passed (5 suites)
+  - **Products Service**: 50 passed (1 suite)
 
 ---
 
@@ -466,7 +692,7 @@ Vendora is actively being expanded with the following planned services:
 
 - [x] **Authentication & Identity Service** (Registration, Login, Redis revocation, Address book)
 - [x] **Product Catalog Service — Phase 1** (Catalog creation, RBAC, express-validator schemas, Multer & ImageKit media pipeline)
-- [ ] **Product Catalog Service — Phase 2** (Public browsing, pagination, search, category filters, product updates & deletion)
+- [x] **Product Catalog Service — Phase 2** (Public browsing, pagination, compound full-text search, price filters, product details by ID, seller updates, seller deletion, seller dashboard inventory)
 - [ ] **Cart & Wishlist Service** (Persistent Redis-cached customer shopping carts)
 - [ ] **Order & Fulfillment Service** (State machine for order lifecycles and tracking)
 - [ ] **Payment & Checkout Gateway** (Stripe / Razorpay webhooks and multi-vendor escrow disbursements)
