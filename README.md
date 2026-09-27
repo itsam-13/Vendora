@@ -9,7 +9,7 @@
 [![MongoDB](https://img.shields.io/badge/MongoDB-Mongoose%20v9-green.svg?style=flat-square&logo=mongodb)](https://mongoosejs.com/)
 [![Redis](https://img.shields.io/badge/Redis-ioredis%20v6-red.svg?style=flat-square&logo=redis)](https://redis.io/)
 [![ImageKit](https://img.shields.io/badge/ImageKit-Media%20CDN-orange.svg?style=flat-square)](https://imagekit.io/)
-[![Tests](https://img.shields.io/badge/tests-84%20passed%20%7C%206%20suites-brightgreen.svg?style=flat-square&logo=jest)](https://jestjs.io/)
+[![Tests](https://img.shields.io/badge/tests-113%20passed%20%7C%207%20suites-brightgreen.svg?style=flat-square&logo=jest)](https://jestjs.io/)
 [![License: ISC](https://img.shields.io/badge/License-ISC-yellow.svg?style=flat-square)](LICENSE)
 
 </div>
@@ -22,10 +22,11 @@
 
 ### 🚀 Current Development Progress
 
-Vendora currently comprises two fully-implemented microservices:
+Vendora currently comprises three fully-implemented, production-ready microservices:
 
 1. **Authentication & Identity Service (`Port 3000`)**: Complete user credential management, dual token transport (HTTP-only cookies and Bearer headers), distributed Redis token blacklisting on logout, role-based access control (`user` and `seller`), and user shipping address book management.
 2. **Product Catalog & Media Service (`Port 3001`)**: End-to-end product lifecycle management, role-restricted creation (`seller`/`admin`), in-memory multipart streaming with Multer, automated cloud image processing and CDN delivery via **ImageKit**, public catalog browsing with compound full-text search (`?q=`), price range filters (`minPrice`/`maxPrice`), configurable pagination (`skip`/`limit`), single product details by ID, seller-isolated updates (`PATCH`), seller-isolated deletions (`DELETE`), and isolated seller inventory listing (`GET /api/products/seller`).
+3. **Shopping Cart Service (`Port 3002`)**: Customer cart management, role-restricted customer access (`role: user`), automated cart provisioning on demand, smart item quantity merging, in-place item adjustments with auto-pruning for `qty <= 0`, individual line-item deletion, complete cart wipe, and computed cart totals (`itemCount`, `totalQuantity`).
 
 ---
 
@@ -94,10 +95,43 @@ Vendora currently comprises two fully-implemented microservices:
 - **Atomic Creation & Resilience**
   - If ImageKit upload encounters an error, the operation aborts without persisting phantom data to MongoDB.
 
+### 🛒 Shopping Cart & Basket Management (`Cart/`)
+- **Role-Restricted Customer Access (RBAC)**
+  - Guarded by JWT authentication allowing only authenticated customers (`role: user`).
+  - Unauthorized non-customers (e.g. `seller` role) receive an explicit `403 Forbidden` response.
+  - Missing or malformed tokens return `401 Unauthorized`.
+
+- **On-Demand Cart Auto-Provisioning**
+  - Automatically initializes a new empty cart document in MongoDB when a user queries or modifies their cart for the first time.
+  - Zero requirement for explicit cart creation endpoints.
+
+- **Smart Item Addition & Quantity Merging (`POST /api/cart/items`)**
+  - If a product already exists in the cart, its quantity is automatically incremented by the requested amount.
+  - If the product is not yet in the cart, a new item line is appended.
+  - Validates `productId` as a valid MongoDB ObjectId and `qty` as a positive integer.
+
+- **Dynamic Quantity Modification & Auto-Pruning (`PATCH /api/cart/items/:productId`)**
+  - Updates item quantity directly.
+  - When updated with `qty <= 0`, the line item is automatically removed from the cart.
+  - Returns `404 Not Found` if the cart or the target item does not exist.
+
+- **Single Line-Item Removal (`DELETE /api/cart/items/:productId`)**
+  - Removes a specific product line item from the cart.
+  - Returns `404 Not Found` if the item is not found in the cart.
+
+- **Full Cart Clearance (`DELETE /api/cart`)**
+  - Empties all items from the customer's cart in a single atomic database operation.
+  - Safe execution: clearing an already-empty cart succeeds smoothly.
+
+- **Live Aggregated Totals**
+  - Every `GET /api/cart` response dynamically computes and returns:
+    - `totals.itemCount`: Total number of distinct product lines.
+    - `totals.totalQuantity`: Aggregate sum of quantities across all items.
+
 ### 🧪 Automated Testing & Isolated CI/CD
 - **100% In-Memory Test Automation**: Powered by Jest, Supertest, and `mongodb-memory-server`.
 - **Offline External Service Mocks**: ImageKit SDK and Redis instances are fully mocked or fixture-isolated during test suites.
-- **84 Passed Tests across 6 suites** (34 Auth + 50 Products) with zero flaky cloud dependencies.
+- **113 Passed Tests across 7 suites** (34 Auth + 50 Products + 29 Cart) with zero flaky cloud dependencies.
 
 ---
 
@@ -107,7 +141,7 @@ Vendora currently comprises two fully-implemented microservices:
 | :--- | :--- | :--- |
 | **Runtime** | Node.js | Asynchronous, event-driven JavaScript runtime (v18+) |
 | **Framework** | Express.js 5.x | Next-generation web framework with native async error propagation |
-| **Primary Database** | MongoDB | Document database for accounts, addresses, and product catalog |
+| **Primary Database** | MongoDB | Document database for accounts, addresses, products, and shopping carts |
 | **ODM** | Mongoose 9.x | Schema modeling, compound text indexing, validations, references, and hooks |
 | **Caching & Invalidation** | Redis (ioredis 6.x) | In-memory distributed store for JWT token revocation blacklists |
 | **Media Storage & CDN** | ImageKit SDK 6.x | Cloud media storage, asset optimization, and CDN delivery |
@@ -148,29 +182,49 @@ Vendora/
 │       ├── auth.me.test.js         # Profile retrieval test suite
 │       ├── auth.logout.test.js     # Redis revocation and cookie clear test suite
 │       └── auth.address.test.js    # Address book management test suite
-└── Products/                       # Product Catalog & Media Service (Port 3001)
+├── Products/                       # Product Catalog & Media Service (Port 3001)
+│   ├── package.json                # Service dependencies and runner scripts
+│   ├── server.js                   # Application bootstrap and database connector
+│   ├── jest.config.js              # Jest configuration for integration test runs
+│   ├── src/
+│   │   ├── app.js                  # Express app setup and product routing
+│   │   ├── controllers/
+│   │   │   └── product.controller.js # Product CRUD, search, filter, seller isolation & ImageKit
+│   │   ├── database/
+│   │   │   └── db.js               # MongoDB connection handler with DNS fallback
+│   │   ├── middlewares/
+│   │   │   ├── auth.middleware.js  # RBAC & JWT verification guard
+│   │   │   ├── multer.middleware.js # In-memory multipart upload parser & filter
+│   │   │   └── validator.middleware.js # Input sanitization and validation schemas
+│   │   ├── models/
+│   │   │   └── product.model.js    # Product Mongoose schema with compound text index
+│   │   ├── routes/
+│   │   │   └── product.routes.js   # Product route definitions (/api/products)
+│   │   └── services/
+│   │       └── imagekit.service.js # ImageKit SDK integration and cloud uploader
+│   └── tests/                      # Automated integration test suites (50 tests)
+│       ├── setupDb.js              # In-memory MongoDB lifecycle fixtures
+│       └── product.test.js         # Full product CRUD, search, pagination, RBAC & ImageKit tests
+└── Cart/                           # Shopping Cart & Basket Service (Port 3002)
     ├── package.json                # Service dependencies and runner scripts
     ├── server.js                   # Application bootstrap and database connector
     ├── jest.config.js              # Jest configuration for integration test runs
     ├── src/
-    │   ├── app.js                  # Express app setup and product routing
+    │   ├── app.js                  # Express app setup, cookie-parser, and cart routes
     │   ├── controllers/
-    │   │   └── product.controller.js # Product CRUD, search, filter, seller isolation & ImageKit
+    │   │   └── cart.controller.js  # Cart logic (getCart, addItem, updateItem, removeItem, clearCart)
     │   ├── database/
     │   │   └── db.js               # MongoDB connection handler with DNS fallback
     │   ├── middlewares/
-    │   │   ├── auth.middleware.js  # RBAC & JWT verification guard
-    │   │   ├── multer.middleware.js # In-memory multipart upload parser & filter
-    │   │   └── validator.middleware.js # Input sanitization and validation schemas
-    │   ├── models/
-    │   │   └── product.model.js    # Product Mongoose schema with compound text index
-    │   ├── routes/
-    │   │   └── product.routes.js   # Product route definitions (/api/products)
-    │   └── services/
-    │       └── imagekit.service.js # ImageKit SDK integration and cloud uploader
-    └── tests/                      # Automated integration test suites (50 tests)
+    │   │   ├── auth.middleware.js  # JWT Bearer and cookie authentication guard (role: user)
+    │   │   └── validator.middleware.js # Express-validator request schemas (ObjectId & qty)
+    │   ├── model/
+    │   │   └── cart.model.js       # Cart Mongoose schema (userId, items array, timestamps)
+    │   └── routes/
+    │       └── cart.routes.js      # Cart route definitions (/api/cart)
+    └── tests/                      # Automated integration test suites (29 tests)
         ├── setupDb.js              # In-memory MongoDB lifecycle fixtures
-        └── product.test.js         # Full product CRUD, search, pagination, RBAC & ImageKit tests
+        └── cart.test.js            # Cart CRUD, quantity adjustment, auto-pruning & RBAC tests
 ```
 
 ---
@@ -515,6 +569,231 @@ curl -X DELETE http://localhost:3001/api/products/67471234abcd5678ef901234 \
 
 ---
 
+### 4. Shopping Cart Endpoints (`Cart Service: 3002`)
+
+All cart endpoints are exposed under `/api/cart`. Every cart route is protected and accessible exclusively to authenticated customers (`role: user`).
+
+| Method | Endpoint | Auth Required | Allowed Roles | Description |
+| :--- | :--- | :---: | :---: | :--- |
+| `GET` | `/api/cart` | ✅ Yes | `user` | Retrieves current user's cart and calculated totals (`itemCount`, `totalQuantity`). Auto-provisions if none exists. |
+| `POST` | `/api/cart/items` | ✅ Yes | `user` | Adds an item to the cart or increments its quantity if already present. |
+| `PATCH` | `/api/cart/items/:productId` | ✅ Yes | `user` | Updates the quantity of a specific item. Automatically removes the item if `qty <= 0`. |
+| `DELETE` | `/api/cart/items/:productId` | ✅ Yes | `user` | Removes a specific product line item from the cart. |
+| `DELETE` | `/api/cart` | ✅ Yes | `user` | Clears all items from the user's cart in a single operation. |
+
+---
+
+#### `GET /api/cart` — View Cart & Totals
+
+Retrieves the current customer's cart. If the user does not have a cart record yet, an empty cart is automatically provisioned and returned.
+
+**Headers:**
+- `Authorization: Bearer <USER_JWT_TOKEN>` *(or `token` cookie)*
+
+**Example Request:**
+```bash
+curl -X GET http://localhost:3002/api/cart \
+  -H "Authorization: Bearer <USER_TOKEN>"
+```
+
+**Success Response (`200 OK`):**
+```json
+{
+  "success": true,
+  "cart": {
+    "_id": "67473456abcd7890ef123456",
+    "userId": "67470000aaaa1111bbbb2222",
+    "items": [
+      {
+        "productId": "67471234abcd5678ef901234",
+        "quantity": 3,
+        "_id": "67473456abcd7890ef123457"
+      },
+      {
+        "productId": "67472222abcd5678ef909999",
+        "quantity": 2,
+        "_id": "67473456abcd7890ef123458"
+      }
+    ],
+    "createdAt": "2026-09-27T18:00:00.000Z",
+    "updatedAt": "2026-09-27T18:05:00.000Z",
+    "__v": 0
+  },
+  "totals": {
+    "itemCount": 2,
+    "totalQuantity": 5
+  }
+}
+```
+
+---
+
+#### `POST /api/cart/items` — Add Item to Cart
+
+Adds a product to the cart. If the product is already present, its quantity is incremented by `qty`.
+
+**Headers:**
+- `Authorization: Bearer <USER_JWT_TOKEN>` *(or `token` cookie)*
+- `Content-Type: application/json`
+
+**Parameters:**
+
+| Field | Type | Required | Description |
+| :--- | :---: | :---: | :--- |
+| `productId` | String | **Yes** | Valid MongoDB ObjectId of the product. |
+| `qty` | Number | **Yes** | Positive integer representing quantity to add (minimum 1). |
+
+**Example Request:**
+```bash
+curl -X POST http://localhost:3002/api/cart/items \
+  -H "Authorization: Bearer <USER_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "productId": "67471234abcd5678ef901234",
+    "qty": 2
+  }'
+```
+
+**Success Response (`200 OK`):**
+```json
+{
+  "success": true,
+  "message": "Item added to cart",
+  "cart": {
+    "_id": "67473456abcd7890ef123456",
+    "userId": "67470000aaaa1111bbbb2222",
+    "items": [
+      {
+        "productId": "67471234abcd5678ef901234",
+        "quantity": 2,
+        "_id": "67473456abcd7890ef123457"
+      }
+    ],
+    "createdAt": "2026-09-27T18:00:00.000Z",
+    "updatedAt": "2026-09-27T18:00:00.000Z",
+    "__v": 0
+  }
+}
+```
+
+---
+
+#### `PATCH /api/cart/items/:productId` — Update Item Quantity
+
+Updates the quantity of a specific item in the cart. If `qty` is set to `0` or negative, the line item is automatically removed from the cart.
+
+**Headers:**
+- `Authorization: Bearer <USER_JWT_TOKEN>` *(or `token` cookie)*
+- `Content-Type: application/json`
+
+**URL Parameters:**
+- `productId`: Valid MongoDB ObjectId of the product.
+
+**Request Body:**
+```json
+{
+  "qty": 5
+}
+```
+
+**Success Response (Quantity Updated — `200 OK`):**
+```json
+{
+  "success": true,
+  "message": "Item quantity updated",
+  "cart": {
+    "_id": "67473456abcd7890ef123456",
+    "userId": "67470000aaaa1111bbbb2222",
+    "items": [
+      {
+        "productId": "67471234abcd5678ef901234",
+        "quantity": 5,
+        "_id": "67473456abcd7890ef123457"
+      }
+    ]
+  }
+}
+```
+
+**Success Response (Auto-Pruned when `qty <= 0` — `200 OK`):**
+```json
+{
+  "success": true,
+  "message": "Item removed from cart",
+  "cart": {
+    "_id": "67473456abcd7890ef123456",
+    "userId": "67470000aaaa1111bbbb2222",
+    "items": []
+  }
+}
+```
+
+**Error Responses:**
+- `400 Bad Request`: Validation failure (invalid ObjectId or non-integer `qty`).
+- `404 Not Found`: Cart not found or item not present in cart (`"Item not found in cart"`).
+
+---
+
+#### `DELETE /api/cart/items/:productId` — Remove Item from Cart
+
+Deletes an individual product line item from the cart.
+
+**Headers:**
+- `Authorization: Bearer <USER_JWT_TOKEN>` *(or `token` cookie)*
+
+**Example Request:**
+```bash
+curl -X DELETE http://localhost:3002/api/cart/items/67471234abcd5678ef901234 \
+  -H "Authorization: Bearer <USER_TOKEN>"
+```
+
+**Success Response (`200 OK`):**
+```json
+{
+  "success": true,
+  "message": "Item removed from cart",
+  "cart": {
+    "_id": "67473456abcd7890ef123456",
+    "userId": "67470000aaaa1111bbbb2222",
+    "items": []
+  }
+}
+```
+
+**Error Responses:**
+- `400 Bad Request`: Invalid `productId` format.
+- `404 Not Found`: Item not found in cart.
+
+---
+
+#### `DELETE /api/cart` — Clear Cart
+
+Removes all items from the customer's cart in a single atomic database operation.
+
+**Headers:**
+- `Authorization: Bearer <USER_JWT_TOKEN>` *(or `token` cookie)*
+
+**Example Request:**
+```bash
+curl -X DELETE http://localhost:3002/api/cart \
+  -H "Authorization: Bearer <USER_TOKEN>"
+```
+
+**Success Response (`200 OK`):**
+```json
+{
+  "success": true,
+  "message": "Cart cleared successfully",
+  "cart": {
+    "_id": "67473456abcd7890ef123456",
+    "userId": "67470000aaaa1111bbbb2222",
+    "items": []
+  }
+}
+```
+
+---
+
 ### 🗄️ Database Schemas
 
 #### User & Address Schema (`Auth/`)
@@ -559,6 +838,29 @@ const productSchema = new mongoose.Schema({
 
 // Compound full-text search index on title and description
 productSchema.index({ title: "text", description: "text" });
+```
+
+#### Cart Schema (`Cart/`)
+```javascript
+const cartSchema = new mongoose.Schema({
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true
+  },
+  items: [
+    {
+      productId: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: true
+      },
+      quantity: {
+        type: Number,
+        required: true,
+        min: 1
+      }
+    }
+  ]
+}, { timestamps: true });
 ```
 
 ---
@@ -624,11 +926,29 @@ Ensure you have the following installed on your development machine:
    ```
    *The Products service will listen on `http://localhost:3001`.*
 
+4. **Setup the Cart Service:**
+   ```bash
+   cd ../Cart
+   npm install
+   ```
+   Create a `Cart/.env` file:
+   ```ini
+   PORT=3002
+   NODE_ENV=development
+   MONGO_URI=mongodb+srv://<username>:<password>@cluster0.example.mongodb.net/VendoraCart?retryWrites=true&w=majority
+   JWT_SECRET_KEY=your_shared_jwt_secret_key_here
+   ```
+   Run Cart Service:
+   ```bash
+   npm run dev
+   ```
+   *The Cart service will listen on `http://localhost:3002`.*
+
 ---
 
 ## 🧪 Testing & Code Quality
 
-Both microservices include independent, isolated integration test suites using `Jest`, `Supertest`, and in-memory MongoDB (`mongodb-memory-server`). No live database, Redis cluster, or ImageKit account is needed to run the tests.
+All three microservices include independent, isolated integration test suites using `Jest`, `Supertest`, and in-memory MongoDB (`mongodb-memory-server`). No live database, Redis cluster, or ImageKit account is needed to run the tests.
 
 ### Running Auth Service Tests
 ```bash
@@ -678,11 +998,31 @@ Snapshots:   0 total
 Time:        1.811 s
 ```
 
+### Running Cart Service Tests
+```bash
+cd Cart
+npm test
+```
+```text
+PASS tests/cart.test.js
+  GET /api/cart (5 tests)
+  POST /api/cart/items (7 tests)
+  PATCH /api/cart/items/:productId (7 tests)
+  DELETE /api/cart/items/:productId (5 tests)
+  DELETE /api/cart (5 tests)
+
+Test Suites: 1 passed, 1 total
+Tests:       29 passed, 29 total
+Snapshots:   0 total
+Time:        1.588 s
+```
+
 ### Combined Test Summary
-- **Total Test Suites**: 6 passed, 6 total
-- **Total Tests**: 84 passed, 84 total (100% pass rate)
+- **Total Test Suites**: 7 passed, 7 total
+- **Total Tests**: 113 passed, 113 total (100% pass rate)
   - **Auth Service**: 34 passed (5 suites)
   - **Products Service**: 50 passed (1 suite)
+  - **Cart Service**: 29 passed (1 suite)
 
 ---
 
@@ -693,7 +1033,7 @@ Vendora is actively being expanded with the following planned services:
 - [x] **Authentication & Identity Service** (Registration, Login, Redis revocation, Address book)
 - [x] **Product Catalog Service — Phase 1** (Catalog creation, RBAC, express-validator schemas, Multer & ImageKit media pipeline)
 - [x] **Product Catalog Service — Phase 2** (Public browsing, pagination, compound full-text search, price filters, product details by ID, seller updates, seller deletion, seller dashboard inventory)
-- [ ] **Cart & Wishlist Service** (Persistent Redis-cached customer shopping carts)
+- [x] **Cart & Wishlist Service** (Persistent customer shopping carts, item quantity management, auto-provisioning, live totals)
 - [ ] **Order & Fulfillment Service** (State machine for order lifecycles and tracking)
 - [ ] **Payment & Checkout Gateway** (Stripe / Razorpay webhooks and multi-vendor escrow disbursements)
 - [ ] **API Gateway & Rate Limiting** (Unified reverse proxy, central authorization routing, request throttling)
