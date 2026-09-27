@@ -753,5 +753,75 @@ describe("PATCH /api/products/:id - Update Product API (SELLER)", () => {
     });
 });
 
+// ─── Test Suite: DELETE /api/products/:id ─────────────────────────────────────
+
+describe("DELETE /api/products/:id - Delete Product API (SELLER)", () => {
+    let sellerUser;
+    let otherSeller;
+    let existingProduct;
+
+    beforeEach(async () => {
+        sellerUser = generateSellerToken({ username: "primaryseller" });
+        otherSeller = generateSellerToken({ username: "otherseller" });
+
+        existingProduct = await Product.create({
+            title: "Product to be deleted",
+            price: { amount: 1999, currency: "INR" },
+            seller: sellerUser.sellerId
+        });
+    });
+
+    it("returns 401 Unauthorized if no token is provided", async () => {
+        const response = await request(app).delete(`/api/products/${existingProduct._id}`);
+
+        expect(response.status).toBe(401);
+        expect(response.body).toHaveProperty("success", false);
+    });
+
+    it("returns 400 Bad Request if product ID is invalid", async () => {
+        const response = await request(app)
+            .delete("/api/products/invalid-product-id-123")
+            .set("Authorization", `Bearer ${sellerUser.token}`);
+
+        expect([400, 500]).toContain(response.status);
+        expect(response.body).toHaveProperty("success", false);
+    });
+
+    it("forbids deleting another seller's product (returns 403 Forbidden)", async () => {
+        const response = await request(app)
+            .delete(`/api/products/${existingProduct._id}`)
+            .set("Authorization", `Bearer ${otherSeller.token}`);
+
+        expect(response.status).toBe(403);
+        expect(response.body).toHaveProperty("success", false);
+        expect(response.body.message).toMatch(/not authorized/i);
+    });
+
+    it("returns 404 Not Found if product does not exist", async () => {
+        const nonExistentId = new mongoose.Types.ObjectId();
+
+        const response = await request(app)
+            .delete(`/api/products/${nonExistentId}`)
+            .set("Authorization", `Bearer ${sellerUser.token}`);
+
+        expect(response.status).toBe(404);
+        expect(response.body).toHaveProperty("success", false);
+    });
+
+    it("successfully deletes the product when requested by the owning seller", async () => {
+        const response = await request(app)
+            .delete(`/api/products/${existingProduct._id}`)
+            .set("Authorization", `Bearer ${sellerUser.token}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveProperty("success", true);
+
+        // Verify product was removed from database
+        const deletedProduct = await Product.findById(existingProduct._id);
+        expect(deletedProduct).toBeNull();
+    });
+});
+
+
 
 

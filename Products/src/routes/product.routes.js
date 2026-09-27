@@ -42,5 +42,11 @@ router.patch(
     productController.updateProduct
 );
 
+//DELETE -> /api/products/:id
+router.delete(
+    "/:id",
+    createAuthMiddleware(["seller"]),
+    productController.deleteProduct
+);
 
 module.exports = router;

@@ -207,9 +207,45 @@ async function updateProduct(req, res) {
     }
 }
 
+async function deleteProduct(req, res) {
+
+    const {id} = req.params;
+
+    if(!mongoose.Types.ObjectId.isValid(id)){
+        return res.status(400).json({
+            success: false,
+            message: "Invalid product ID"
+        })
+    }
+    
+    const product = await productModel.findById(id);
+
+    if(!product){
+        return res.status(404).json({
+            success: false,
+            message: "Product not found"
+        })
+    }
+
+    if(req.user?.id !== product.seller.toString()){
+        return res.status(403).json({
+            success: false,
+            message: "You are not authorized to delete this product"
+        })
+    }
+
+    await product.deleteOne();
+    return res.status(200).json({
+        success: true,
+        message: "Product deleted successfully"
+    });
+    
+}
+
 module.exports = {
     createProduct,
     getProducts,
     getProductById,
-    updateProduct
+    updateProduct,
+    deleteProduct
 };
