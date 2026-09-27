@@ -1,5 +1,5 @@
 const express = require("express");
-const { productController } = require("../controllers/product.controller");
+const productController = require("../controllers/product.controller");
 const { createAuthMiddleware } = require("../middlewares/auth.middleware");
 const { createProductValidations } = require("../middlewares/validator.middleware");
 const upload = require("../middlewares/multer.middleware");
@@ -27,5 +27,8 @@ router.post(
     createProductValidations,
     productController.createProduct
 );
+
+//GET -> /api/products
+router.get("/", productController.getProducts);
 
 module.exports = router;

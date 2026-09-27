@@ -36,6 +36,9 @@ const productSchema = new mongoose.Schema({
 
 })
 
+// text search index 
+productSchema.index({ title: "text", description: "text" })
+
 const product = mongoose.model("product", productSchema)
 
 module.exports = product

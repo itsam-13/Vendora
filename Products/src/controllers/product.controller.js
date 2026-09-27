@@ -1,4 +1,5 @@
-const Product = require("../models/product.model");
+const productModel = require("../models/product.model");
+const Product = productModel;
 const { uploadToImageKit } = require("../services/imagekit.service");
 
 
@@ -26,7 +27,7 @@ async function createProduct(req, res) {
             amount: Number(priceAmount),
             currency: priceCurrency || req.body.price?.currency || "INR"
         };
-        
+
         // Handle image uploads if files were provided via multer
         const uploadedImages = [];
         if (req.files && Array.isArray(req.files) && req.files.length > 0) {
@@ -34,7 +35,7 @@ async function createProduct(req, res) {
                 const uploadPromises = req.files.map((file) => uploadToImageKit(file));
                 const uploadResults = await Promise.all(uploadPromises);
                 uploadedImages.push(...uploadResults);
-                
+
             } catch (uploadError) {
                 if (process.env.NODE_ENV !== "test") {
                     console.error("Image upload failed:", uploadError);
@@ -72,11 +73,43 @@ async function createProduct(req, res) {
     }
 }
 
-const productController = {
-    createProduct
-};
+async function getProducts(req, res) {
+    try {
+        const { q, minPrice, maxPrice, skip = 0, limit = 20 } = req.query;
+
+        const filter = {};
+        if (q) {
+            filter.$text = { $search: q };
+        }
+
+        if (minPrice) {
+            filter['price.amount'] = { ...filter['price.amount'], $gte: Number(minPrice) };
+        }
+
+        if (maxPrice) {
+            filter['price.amount'] = { ...filter['price.amount'], $lte: Number(maxPrice) };
+        }
+
+        const products = await productModel.find(filter).skip(Number(skip)).limit(Number(limit))
+
+        return res.status(200).json({
+            success: true,
+            message: "Products fetched successfully",
+            products
+        });
+    } catch (error) {
+        if (process.env.NODE_ENV !== "test") {
+            console.error("Error fetching products:", error);
+        }
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error while fetching products",
+            error: error.message
+        });
+    }
+}
 
 module.exports = {
     createProduct,
-    productController
+    getProducts
 };

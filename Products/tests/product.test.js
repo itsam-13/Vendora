@@ -21,6 +21,7 @@ jest.mock("../src/services/imagekit.service", () => ({
 
 beforeAll(async () => {
     await dbHandler.connect();
+    await Product.init();
 });
 
 afterEach(async () => {
@@ -327,3 +328,265 @@ describe("POST /api/products/ - Create Product API", () => {
     });
 
 });
+
+// ─── Test Suite: GET /api/products ───────────────────────────────────────────
+
+describe("GET /api/products - Get Products API", () => {
+    const mockSellerId = new mongoose.Types.ObjectId();
+
+    const sampleProducts = [
+        {
+            title: "Apple iPhone 15 Pro",
+            description: "High performance flagship smartphone with titanium design and A17 chip",
+            price: { amount: 120000, currency: "INR" },
+            seller: mockSellerId
+        },
+        {
+            title: "Samsung Galaxy S24 Ultra",
+            description: "Flagship Android phone with S-Pen stylus and 200MP camera",
+            price: { amount: 110000, currency: "INR" },
+            seller: mockSellerId
+        },
+        {
+            title: "Sony WH-1000XM5 Wireless Headphones",
+            description: "Premium noise cancelling over-ear headphones with long battery life",
+            price: { amount: 28000, currency: "INR" },
+            seller: mockSellerId
+        },
+        {
+            title: "Logitech MX Master 3S Mouse",
+            description: "Ergonomic wireless office mouse with ultrafast scroll wheel",
+            price: { amount: 8500, currency: "INR" },
+            seller: mockSellerId
+        },
+        {
+            title: "Keychron K2 Mechanical Keyboard",
+            description: "Compact wireless mechanical keyboard with RGB backlighting",
+            price: { amount: 7500, currency: "INR" },
+            seller: mockSellerId
+        },
+        {
+            title: "Budget Wired Gaming Mouse",
+            description: "Affordable optical USB gaming mouse for entry-level gamers",
+            price: { amount: 899, currency: "INR" },
+            seller: mockSellerId
+        }
+    ];
+
+    describe("Basic Fetching & Public Access", () => {
+        it("returns 200 and an empty array when no products exist in database", async () => {
+            const response = await request(app).get("/api/products");
+
+            expect(response.status).toBe(200);
+            expect(response.body).toHaveProperty("success", true);
+            expect(response.body).toHaveProperty("message", "Products fetched successfully");
+            expect(response.body.products).toBeInstanceOf(Array);
+            expect(response.body.products).toHaveLength(0);
+        });
+
+        it("returns 200 and all products without requiring an authentication token", async () => {
+            await Product.insertMany(sampleProducts);
+
+            const response = await request(app).get("/api/products");
+
+            expect(response.status).toBe(200);
+            expect(response.body.success).toBe(true);
+            expect(response.body.message).toBe("Products fetched successfully");
+            expect(response.body.products).toHaveLength(sampleProducts.length);
+        });
+
+        it("returns products with correct data structure matching schema", async () => {
+            await Product.create({
+                title: "OnePlus 12",
+                description: "Flagship killer phone with Hasselblad camera",
+                price: { amount: 64999, currency: "INR" },
+                seller: mockSellerId,
+                images: [{ url: "https://example.com/phone.jpg", thumbnail: "https://example.com/thumb.jpg", id: "img_1" }]
+            });
+
+            const response = await request(app).get("/api/products");
+
+            expect(response.status).toBe(200);
+            expect(response.body.products).toHaveLength(1);
+            const product = response.body.products[0];
+            expect(product).toHaveProperty("_id");
+            expect(product.title).toBe("OnePlus 12");
+            expect(product.description).toBe("Flagship killer phone with Hasselblad camera");
+            expect(product.price).toEqual({ amount: 64999, currency: "INR" });
+            expect(product.seller).toBe(mockSellerId.toString());
+            expect(product.images).toHaveLength(1);
+            expect(product.images[0].url).toBe("https://example.com/phone.jpg");
+        });
+    });
+
+    describe("Pagination (skip and limit)", () => {
+        beforeEach(async () => {
+            await Product.insertMany(sampleProducts);
+        });
+
+        it("applies default pagination (limit: 20, skip: 0)", async () => {
+            const response = await request(app).get("/api/products");
+
+            expect(response.status).toBe(200);
+            expect(response.body.products).toHaveLength(sampleProducts.length);
+        });
+
+        it("limits the number of returned products using ?limit", async () => {
+            const response = await request(app).get("/api/products?limit=2");
+
+            expect(response.status).toBe(200);
+            expect(response.body.products).toHaveLength(2);
+        });
+
+        it("skips products using ?skip", async () => {
+            const allResponse = await request(app).get("/api/products");
+            const skippedResponse = await request(app).get("/api/products?skip=2");
+
+            expect(skippedResponse.status).toBe(200);
+            expect(skippedResponse.body.products).toHaveLength(sampleProducts.length - 2);
+            expect(skippedResponse.body.products[0]._id).toBe(allResponse.body.products[2]._id);
+        });
+
+        it("paginates properly with both skip and limit together", async () => {
+            const allResponse = await request(app).get("/api/products");
+            const pagedResponse = await request(app).get("/api/products?skip=1&limit=2");
+
+            expect(pagedResponse.status).toBe(200);
+            expect(pagedResponse.body.products).toHaveLength(2);
+            expect(pagedResponse.body.products[0]._id).toBe(allResponse.body.products[1]._id);
+            expect(pagedResponse.body.products[1]._id).toBe(allResponse.body.products[2]._id);
+        });
+
+        it("returns an empty array when skip exceeds total count of products", async () => {
+            const response = await request(app).get("/api/products?skip=100");
+
+            expect(response.status).toBe(200);
+            expect(response.body.products).toHaveLength(0);
+        });
+    });
+
+    describe("Price Range Filtering (minPrice and maxPrice)", () => {
+        beforeEach(async () => {
+            await Product.insertMany(sampleProducts);
+        });
+
+        it("filters products with price greater than or equal to minPrice", async () => {
+            const response = await request(app).get("/api/products?minPrice=28000");
+
+            expect(response.status).toBe(200);
+            expect(response.body.products).toHaveLength(3); // 120000, 110000, 28000
+            response.body.products.forEach((prod) => {
+                expect(prod.price.amount).toBeGreaterThanOrEqual(28000);
+            });
+        });
+
+        it("filters products with price less than or equal to maxPrice", async () => {
+            const response = await request(app).get("/api/products?maxPrice=8500");
+
+            expect(response.status).toBe(200);
+            expect(response.body.products).toHaveLength(3); // 8500, 7500, 899
+            response.body.products.forEach((prod) => {
+                expect(prod.price.amount).toBeLessThanOrEqual(8500);
+            });
+        });
+
+        it("filters products within a price range using both minPrice and maxPrice", async () => {
+            const response = await request(app).get("/api/products?minPrice=5000&maxPrice=30000");
+
+            expect(response.status).toBe(200);
+            expect(response.body.products).toHaveLength(3); // 28000, 8500, 7500
+            response.body.products.forEach((prod) => {
+                expect(prod.price.amount).toBeGreaterThanOrEqual(5000);
+                expect(prod.price.amount).toBeLessThanOrEqual(30000);
+            });
+        });
+
+        it("returns an empty array when no products fall within price range", async () => {
+            const response = await request(app).get("/api/products?minPrice=500000&maxPrice=1000000");
+
+            expect(response.status).toBe(200);
+            expect(response.body.products).toHaveLength(0);
+        });
+    });
+
+    describe("Text Search (q)", () => {
+        beforeEach(async () => {
+            await Product.insertMany(sampleProducts);
+        });
+
+        it("searches and finds products matching keywords in title", async () => {
+            const response = await request(app).get("/api/products?q=iPhone");
+
+            expect(response.status).toBe(200);
+            expect(response.body.products.length).toBeGreaterThanOrEqual(1);
+            expect(response.body.products.some(p => p.title.includes("iPhone"))).toBe(true);
+        });
+
+        it("searches and finds products matching keywords in description", async () => {
+            const response = await request(app).get("/api/products?q=cancelling");
+
+            expect(response.status).toBe(200);
+            expect(response.body.products.length).toBeGreaterThanOrEqual(1);
+            expect(response.body.products.some(p => p.title.includes("Sony"))).toBe(true);
+        });
+
+        it("returns multiple matching products for a common query keyword", async () => {
+            const response = await request(app).get("/api/products?q=wireless");
+
+            expect(response.status).toBe(200);
+            expect(response.body.products.length).toBeGreaterThanOrEqual(2);
+        });
+
+        it("returns an empty array when query does not match any product", async () => {
+            const response = await request(app).get("/api/products?q=nonexistentproductxyz");
+
+            expect(response.status).toBe(200);
+            expect(response.body.products).toHaveLength(0);
+        });
+    });
+
+    describe("Combined Queries (Search + Price Filter + Pagination)", () => {
+        beforeEach(async () => {
+            await Product.insertMany(sampleProducts);
+        });
+
+        it("combines text search with price filtering", async () => {
+            // "wireless" matches Sony (28000), Logitech (8500), Keychron (7500)
+            const response = await request(app).get("/api/products?q=wireless&maxPrice=10000");
+
+            expect(response.status).toBe(200);
+            expect(response.body.products.length).toBeGreaterThanOrEqual(1);
+            response.body.products.forEach((prod) => {
+                expect(prod.price.amount).toBeLessThanOrEqual(10000);
+            });
+            expect(response.body.products.some(p => p.title.includes("Sony"))).toBe(false);
+        });
+
+        it("combines search, price range filter, and limit pagination", async () => {
+            const response = await request(app).get("/api/products?q=mouse&minPrice=500&maxPrice=10000&limit=1");
+
+            expect(response.status).toBe(200);
+            expect(response.body.products).toHaveLength(1);
+            expect(response.body.products[0].price.amount).toBeGreaterThanOrEqual(500);
+            expect(response.body.products[0].price.amount).toBeLessThanOrEqual(10000);
+        });
+    });
+
+    describe("Error Handling", () => {
+        it("returns 500 when database operation fails", async () => {
+            const findSpy = jest.spyOn(Product, "find").mockImplementationOnce(() => {
+                throw new Error("Database query failure");
+            });
+
+            const response = await request(app).get("/api/products");
+
+            expect(response.status).toBe(500);
+            expect(response.body).toHaveProperty("success", false);
+            expect(response.body).toHaveProperty("message", "Internal server error while fetching products");
+            expect(response.body).toHaveProperty("error", "Database query failure");
+
+            findSpy.mockRestore();
+        });
+    });
+});
+
