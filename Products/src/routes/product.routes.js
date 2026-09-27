@@ -34,5 +34,13 @@ router.get("/", productController.getProducts);
 //GET -> /api/products/:id
 router.get("/:id", productController.getProductById);
 
+//PATCH -> /api/products/:id
+router.patch(
+    "/:id",
+    createAuthMiddleware(["seller"]),
+    handleUpload,
+    productController.updateProduct
+);
+
 
 module.exports = router;

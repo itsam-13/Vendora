@@ -679,3 +679,79 @@ describe("GET /api/products/:id - Get Product By ID API", () => {
     });
 });
 
+// ─── Test Suite: PATCH /api/products/:id ──────────────────────────────────────
+
+describe("PATCH /api/products/:id - Update Product API (SELLER)", () => {
+    let sellerUser;
+    let otherSeller;
+    let regularUser;
+    let existingProduct;
+
+    beforeEach(async () => {
+        sellerUser = generateSellerToken({ username: "primaryseller" });
+        otherSeller = generateSellerToken({ username: "otherseller" });
+        regularUser = generateUserToken({ username: "buyer" });
+
+        existingProduct = await Product.create({
+            title: "Original Gaming Laptop",
+            description: "Original description with Intel i7 and 16GB RAM",
+            price: { amount: 75000, currency: "INR" },
+            seller: sellerUser.sellerId,
+            images: [
+                {
+                    url: "https://example.com/laptop.jpg",
+                    thumbnail: "https://example.com/thumb_laptop.jpg",
+                    id: "img_laptop_01"
+                }
+            ]
+        });
+    });
+
+    describe("Authentication and Role Authorization", () => {
+        it("returns 401 Unauthorized if no token is provided", async () => {
+            const response = await request(app)
+                .patch(`/api/products/${existingProduct._id}`)
+                .send({ title: "Updated Title" });
+
+            expect(response.status).toBe(401);
+            expect(response.body).toHaveProperty("success", false);
+            expect(response.body.message).toMatch(/unauthorized/i);
+        });
+
+        it("returns 401 Unauthorized if token is invalid or malformed", async () => {
+            const response = await request(app)
+                .patch(`/api/products/${existingProduct._id}`)
+                .set("Authorization", "Bearer invalid.token.value")
+                .send({ title: "Updated Title" });
+
+            expect(response.status).toBe(401);
+            expect(response.body).toHaveProperty("success", false);
+            expect(response.body.message).toMatch(/invalid or expired token/i);
+        });
+
+        it("returns 401 Unauthorized if non-seller user attempts to update product", async () => {
+            const response = await request(app)
+                .patch(`/api/products/${existingProduct._id}`)
+                .set("Authorization", `Bearer ${regularUser.token}`)
+                .send({ title: "Buyer Cannot Update" });
+
+            expect(response.status).toBe(401);
+            expect(response.body).toHaveProperty("success", false);
+            expect(response.body.message).toMatch(/unauthorized/i);
+        });
+
+        it("returns 403 Forbidden if seller attempts to update another seller's product", async () => {
+            const response = await request(app)
+                .patch(`/api/products/${existingProduct._id}`)
+                .set("Authorization", `Bearer ${otherSeller.token}`)
+                .send({ title: "Hijacked Product Title" });
+
+            expect(response.status).toBe(403);
+            expect(response.body).toHaveProperty("success", false);
+            expect(response.body.message).toMatch(/not authorized/i);
+        });
+    });
+});
+
+
+

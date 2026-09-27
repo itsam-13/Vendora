@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const productModel = require("../models/product.model");
 const Product = productModel;
 const { uploadToImageKit } = require("../services/imagekit.service");
@@ -121,7 +122,7 @@ async function getProductById(req, res) {
         }
 
         const product = await productModel.findById(id);
-        
+
         if (!product) {
             return res.status(404).json({
                 success: false,
@@ -131,7 +132,7 @@ async function getProductById(req, res) {
         return res.status(200).json({
             success: true,
             message: "Product fetched successfully",
-            product:product
+            product: product
         });
     } catch (error) {
         if (process.env.NODE_ENV !== "test") {
@@ -145,12 +146,70 @@ async function getProductById(req, res) {
     }
 }
 
+async function updateProduct(req, res) {
+    try {
+        const { id } = req.params;
 
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid product ID"
+            });
+        }
 
+        const product = await productModel.findById(id);
 
+        if (!product) {
+            return res.status(404).json({
+                success: false,
+                message: "Product not found"
+            });
+        }
+
+        if (req.user?.id !== product.seller.toString()) {
+            return res.status(403).json({
+                success: false,
+                message: "You are not authorized to update this product"
+            });
+        }
+
+    const allowUpdates = ["title", "description", "price"]
+    for (const key of Object.keys()(req.body)) {
+        if (allowUpdates.includes(key)) {
+            if (key === "price" && typeof req.body.price === 'Object') {
+                if (req.body.price.amount !== undefined) {
+                    product[key].amount = Number(req.body.price.amount);
+                }
+                if (req.body.price.currency !== undefined) {
+                    product[key].currency = Number(req.body.price.currency)
+                }
+            }
+            else {
+                product[key] = req.body[key];
+            }
+        }
+    }
+
+    await product.save()
+    return res.status(200).json({
+        message: "Product updated successfully",
+        product: product
+    });
+    } catch (error) {
+        if (process.env.NODE_ENV !== "test") {
+            console.error("Error updating product:", error);
+        }
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error while updating product",
+            error: error.message
+        });
+    }
+}
 
 module.exports = {
     createProduct,
     getProducts,
-    getProductById
+    getProductById,
+    updateProduct
 };
