@@ -90,7 +90,7 @@ async function getProducts(req, res) {
             filter['price.amount'] = { ...filter['price.amount'], $lte: Number(maxPrice) };
         }
 
-        const products = await productModel.find(filter).skip(Number(skip)).limit(Number(limit))
+        const products = await productModel.find(filter).skip(Number(skip)).limit(Math.min(Number(limit), 20))
 
         return res.status(200).json({
             success: true,
