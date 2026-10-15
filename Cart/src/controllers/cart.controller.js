@@ -86,10 +86,10 @@ async function getCart(req, res) {
     try {
         const userId = req.user.id || req.user._id;
 
-        let cart = await cartModel.findOne({ userId });
+        let cart = await cartModel.findOne({ user: user.id });
 
         if (!cart) {
-            cart = await cartModel.create({ userId, items: [] });
+            cart = await cartModel({ user: user.id, items: [] });
         }
 
         res.status(200).json({
