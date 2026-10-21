@@ -41,7 +41,7 @@ async function updateCartItem(req, res) {
         const { qty } = req.body;
         const userId = req.user.id || req.user._id;
 
-        let cart = await cartModel.findOne({ userId });
+        let cart = await cartModel.findOne({ user: user.id });
 
         if (!cart) {
             return res.status(404).json({
