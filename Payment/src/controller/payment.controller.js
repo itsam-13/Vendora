@@ -78,13 +78,13 @@ async function verifyPayment(req, res) {
 
 
         // publish to queue order 
-        await publishToQueue("PAYMENT_NOTIFICATION.PAYMENT_COMPLETED",{
+        await publishToQueue("PAYMENT_NOTIFICATION.PAYMENT_COMPLETED", {
             email: req.user.email,
             orderId: payment.order,
             paymentId: payment.paymentId,
             amount: payment.price.amount / 100,
             currency: payment.price.currency,
-            fullName: req.user.fullName
+            username: req.user.username
         });
 
 
@@ -93,11 +93,11 @@ async function verifyPayment(req, res) {
     } catch (error) {
         console.log(error);
 
-        await publishToQueue("PAYMENT_NOTIFICATION.PAYMENT_FAILED",{
-            email: req.user.email,
+        await publishToQueue("PAYMENT_NOTIFICATION.PAYMENT_FAILED", {
+            email: req.user?.email,
             paymentId: paymentId,
             orderId: razorpayOrderId,
-            fullName: req.user.fullName
+            username: req.user?.username
         });
 
         res.status(500).send('Error verifying payment');
