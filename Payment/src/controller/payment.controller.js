@@ -38,6 +38,15 @@ async function createPayment(req, res) {
             },
         })
 
+        await publishToQueue("PAYMENT_SELLER_DASHBOARD.PAYMENT_CREATED", payment)
+        await publishToQueue("PAYMENT_NOTIFICATION.PAYMENT_INITIATED", {
+            email: req.user.email,
+            orderId: payment.order,
+            amount: payment.price.amount / 100,
+            currency: payment.price.currency,
+            username: req.user.username
+        })
+
         return res.status(201).json({ message: "Payment created successfully", payment });
 
     } catch (error) {
@@ -86,6 +95,8 @@ async function verifyPayment(req, res) {
             currency: payment.price.currency,
             username: req.user.username
         });
+
+        await publishToQueue("PAYMENT_SELLER_DASHBOARD.PAYMENT_VERIFY", payment)
 
 
         return res.status(200).json({ message: "Payment verified successfully", payment });
