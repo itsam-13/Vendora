@@ -16,6 +16,19 @@ module.exports = function () {
 
     })
 
+    subscribeToQueue('PAYMENT_NOTIFICATION.PAYMENT_INITIATED', async (data) => {
+        const emailHTMLTemplate =
+            `<h1>Payment Initiated</h1>
+                <p>Dear ${data.username || "Customer"},</p>
+                <p>Your payment has been initiated.</p>
+                <p>Order ID: ${data.orderId}</p>
+                <p>Payment ID: ${data.paymentId}</p>
+                <p>Amount: ${data.amount} ${data.currency}</p>
+                <p>Best regards,<br />The Team</p>`;
+
+        await sendEmail(data.email, "Payment Initiated", "Your payment has been initiated!", emailHTMLTemplate);
+    })
+
     // Payment Completed Listener 
     subscribeToQueue("PAYMENT_NOTIFICATION.PAYMENT_COMPLETED", async (data) => {
         const emailHTMLTemplate =
@@ -41,5 +54,16 @@ module.exports = function () {
                 <p>Best regards,<br />The Team</p>`;
 
         await sendEmail(data.email, "Payment Failed", "Sorry, your payment could not be processed!", emailHTMLTemplate);
+    })
+
+    subscribeToQueue("PRODUCT_NOTIFICATION.PRODUCT_CREATED", async (data) => {
+        const emailHTMLTemplate =
+            `<h1>Product Available</h1>
+                <p>Dear ${data.username},</p>
+                <p>New Product is now available in the marketplace.</p>
+                <p>Product: ${data.title}</p>   
+                <p>Best regards,<br />The Team</p>`;
+
+        await sendEmail(data.email, "Product Available", "New product available in the marketplace!", emailHTMLTemplate);
     })
 }
