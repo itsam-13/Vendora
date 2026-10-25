@@ -4,11 +4,15 @@ const cookieParser = require("cookie-parser");
 
 const app = express();
 
-// middlewares--------------------------------------------------
+// middlewares
 app.use(cookieParser());
 app.use(express.json());
 
-// api routes---------------------------------------------------
+app.get('/',(req,res)=>{
+    res.status(200).json({message:"Cart Service is running..."})
+})
+
+// api routes
 app.use("/api/cart", cartRoutes);
 
 

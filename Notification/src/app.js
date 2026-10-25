@@ -11,7 +11,7 @@ connect().then(() => {
 app.use(express.json());
 
 app.get('/', (req, res) => {
-    res.send('Notification service is up and running!');
+    res.send('Notification Service is running...');
 });
 
 
