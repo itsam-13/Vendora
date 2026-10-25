@@ -1,865 +1,1016 @@
 <div align="center">
 
-# 🛍️ Vendora
-
-**A Scalable, Modern Multi-Vendor E-Commerce Platform Backend**
-
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg?style=flat-square&logo=node.js)](https://nodejs.org/)
-[![Express.js](https://img.shields.io/badge/express-v5.2.1-blue.svg?style=flat-square&logo=express)](https://expressjs.com/)
-[![MongoDB](https://img.shields.io/badge/MongoDB-Mongoose%20v9-green.svg?style=flat-square&logo=mongodb)](https://mongoosejs.com/)
-[![Redis](https://img.shields.io/badge/Redis-ioredis%20v6-red.svg?style=flat-square&logo=redis)](https://redis.io/)
-[![ImageKit](https://img.shields.io/badge/ImageKit-Media%20CDN-orange.svg?style=flat-square)](https://imagekit.io/)
-[![Tests](https://img.shields.io/badge/tests-113%20passed%20%7C%207%20suites-brightgreen.svg?style=flat-square&logo=jest)](https://jestjs.io/)
-[![License: ISC](https://img.shields.io/badge/License-ISC-yellow.svg?style=flat-square)](LICENSE)
-
-</div>
-
 ---
 
 ## 📌 Project Overview
 
-**Vendora** is an enterprise-ready, multi-vendor e-commerce backend built with a modular, service-oriented architecture. Designed to handle high-concurrency traffic, secure transactional workflows, and segregated seller-buyer operations, Vendora provides a resilient foundation for modern online commerce.
+**Vendora** is an enterprise-ready, multi-vendor e-commerce platform built as a distributed microservices system. Each service is independently deployable, communicates asynchronously via **RabbitMQ**, and is isolated behind its own database. The platform handles high-concurrency traffic, secure transactional workflows, event-driven notifications, AI-powered shopping assistance, and seller-specific analytics.
 
-### 🚀 Current Development Progress
+### 🏗️ Services at a Glance
 
-Vendora currently comprises three fully-implemented, production-ready microservices:
-
-1. **Authentication & Identity Service (`Port 3000`)**: Complete user credential management, dual token transport (HTTP-only cookies and Bearer headers), distributed Redis token blacklisting on logout, role-based access control (`user` and `seller`), and user shipping address book management.
-2. **Product Catalog & Media Service (`Port 3001`)**: End-to-end product lifecycle management, role-restricted creation (`seller`/`admin`), in-memory multipart streaming with Multer, automated cloud image processing and CDN delivery via **ImageKit**, public catalog browsing with compound full-text search (`?q=`), price range filters (`minPrice`/`maxPrice`), configurable pagination (`skip`/`limit`), single product details by ID, seller-isolated updates (`PATCH`), seller-isolated deletions (`DELETE`), and isolated seller inventory listing (`GET /api/products/seller`).
-3. **Shopping Cart Service (`Port 3002`)**: Customer cart management, role-restricted customer access (`role: user`), automated cart provisioning on demand, smart item quantity merging, in-place item adjustments with auto-pruning for `qty <= 0`, individual line-item deletion, complete cart wipe, and computed cart totals (`itemCount`, `totalQuantity`).
+| # | Service                    |   Port   | Description                                                    |
+| :- | :------------------------- | :------: | :------------------------------------------------------------- |
+| 1 | **Auth**             | `3000` | Identity, JWT auth, Redis session revocation, address book     |
+| 2 | **Products**         | `3001` | Product catalog, RBAC, ImageKit CDN, full-text search          |
+| 3 | **Cart**             | `3002` | Customer shopping cart, quantity management, auto-provisioning |
+| 4 | **Order**            | `3003` | Order lifecycle, inventory reservation, shipping management    |
+| 5 | **Payment**          | `3004` | Razorpay integration, payment creation & verification          |
+| 6 | **AI-Buddy**         | `3005` | Gemini 2.0 Flash AI agent with Socket.IO real-time chat        |
+| 7 | **Notification**     | `3006` | Event-driven email notifications via Nodemailer + Gmail OAuth2 |
+| 8 | **Seller-Dashboard** | `3007` | Seller analytics, read-model via RabbitMQ event sync           |
 
 ---
 
-## ✨ Key Features & Capabilities
+## 🏛️ System Architecture
 
-### 🔐 Authentication & Identity Management (`Auth/`)
-- **Robust Registration & Dual Identifier Login**
-  - Registration with duplicate protection across both `username` and `email`.
-  - Role-based profile provisioning (`user` vs. `seller`).
-  - Flexible login via either registered `email` or `username` (case-insensitive).
-  - Secure password hashing using `bcryptjs` with salted rounds.
+```mermaid
+graph TB
+    Client["🌐 Client"]
 
-- **Token Management & Dual Transport**
-  - Stateless JSON Web Token (JWT) issuance for authenticated sessions.
-  - Accepts tokens from both `HttpOnly` cookies and `Authorization: Bearer <token>` headers.
-  - Cookie security hardening: `httpOnly`, `sameSite: strict`, and SSL `secure` flag support.
+    subgraph Services["Microservices (REST + WebSocket)"]
+        Auth["Auth :3000"]
+        Products["Products :3001"]
+        Cart["Cart :3002"]
+        Order["Order :3003"]
+        Payment["Payment :3004"]
+        AIBuddy["AI-Buddy :3005"]
+        Notification["Notification :3006"]
+        SellerDash["Seller-Dashboard :3007"]
+    end
 
-- **Distributed Redis Session Revocation**
-  - Immediate token blacklisting in Redis upon logout with automated TTL matching token expiration (24h).
-  - Clean cookie clearance and server-side revocation.
+    subgraph MQ["📨 RabbitMQ Message Broker"]
+        Q1["AUTH_NOTIFICATION.USER_CREATED"]
+        Q2["AUTH_SELLER_DASHBOARD.USER_CREATED"]
+        Q3["PRODUCT_NOTIFICATION.PRODUCT_CREATED"]
+        Q4["PRODUCT_SELLER_DASHBOARD.PRODUCT_CREATED"]
+        Q5["ORDER_SELLER_DASHBOARD.ORDER_CREATED"]
+        Q6["PAYMENT_NOTIFICATION.PAYMENT_events"]
+        Q7["PAYMENT_SELLER_DASHBOARD.PAYMENT_events"]
+    end
 
-- **Customer Address Book Management**
-  - Full CRUD operations for customer shipping/billing addresses (`street`, `city`, `state`, `pincode`, `phone`, `country`).
-  - Automatic default address setting: marks initial address as default, and enforces a single default address constraint.
+    subgraph External["🔧 External Services"]
+        MongoDB[("MongoDB")]
+        Redis[("Redis")]
+        ImageKit["ImageKit CDN"]
+        Razorpay["Razorpay"]
+        Gmail["Gmail SMTP"]
+        GeminiAI["Gemini 2.0 Flash"]
+    end
 
-### 📦 Product Catalog & Cloud Media CDN (`Products/`)
-- **Role-Gated Product Creation (RBAC)**
-  - Guarded by role verification middleware: only users with `seller` or `admin` roles can create products.
-  - Non-privileged buyers receive an explicit `401 Unauthorized` error.
+    Client -->|HTTP| Auth
+    Client -->|HTTP| Products
+    Client -->|HTTP| Cart
+    Client -->|HTTP| Order
+    Client -->|HTTP| Payment
+    Client -->|WebSocket| AIBuddy
 
-- **Cloud Media Pipeline (Multer + ImageKit)**
-  - In-memory multipart handling via `multer` without storing temporary files on local disk.
-  - Strict MIME validation (permits only `image/*`; rejects unsupported files with `400 Bad Request`).
-  - Enforces a maximum of 5 images per product, up to 5 MB per image.
-  - Parallel cloud upload to **ImageKit** with unique UUID naming.
-  - Stores structured media payloads including full `url`, optimized `thumbnail`, and ImageKit file `id`.
+    Auth -->|Publishes| Q1
+    Auth -->|Publishes| Q2
+    Products -->|Publishes| Q3
+    Products -->|Publishes| Q4
+    Order -->|Publishes| Q5
+    Payment -->|Publishes| Q6
+    Payment -->|Publishes| Q7
 
-- **Public Catalog Discovery, Full-Text Search & Filtering**
-  - Completely public access without requiring authentication tokens.
-  - MongoDB compound full-text index on `{ title: "text", description: "text" }` supporting multi-word keyword search (`?q=query`).
-  - Flexible price range querying (`?minPrice=1000&maxPrice=5000`).
-  - High-performance pagination with `skip` (default 0) and `limit` (default 20, max 20).
-  - Seamless combination of text query, price boundaries, and pagination in a single request.
+    Q1 -->|Subscribes| Notification
+    Q3 -->|Subscribes| Notification
+    Q6 -->|Subscribes| Notification
+    Q2 -->|Subscribes| SellerDash
+    Q4 -->|Subscribes| SellerDash
+    Q5 -->|Subscribes| SellerDash
+    Q7 -->|Subscribes| SellerDash
 
-- **Product Details by ID**
-  - Public endpoint `GET /api/products/:id` returning detailed product information, price, images, and seller reference.
-  - Proper error semantics with `404 Not Found` for non-existent products and `500` for malformed ObjectIds.
+    Order -->|"HTTP GET /api/cart"| Cart
+    Order -->|"HTTP POST /api/inventory/reserve"| Products
+    Payment -->|"HTTP GET /api/orders/:id"| Order
+    AIBuddy -->|"HTTP GET /api/products"| Products
+    AIBuddy -->|"HTTP POST /api/cart/items"| Cart
 
-- **Seller Ownership Isolation (Updates & Deletion)**
-  - Protected endpoints requiring `seller` role.
-  - Strict ownership validation: sellers can **only** update or delete products they personally created (`product.seller == req.user.id`).
-  - Unauthorized vendors attempting modifications on products owned by another seller receive an explicit `403 Forbidden` response.
-  - Safe field whitelisting on updates (`title`, `description`, `price`), supporting nested price amounts and currencies.
-  - Atomic document deletion from MongoDB.
+    Auth --- MongoDB
+    Products --- MongoDB
+    Cart --- MongoDB
+    Order --- MongoDB
+    Payment --- MongoDB
+    SellerDash --- MongoDB
+    Auth --- Redis
+    Products --- ImageKit
+    Payment --- Razorpay
+    Notification --- Gmail
+    AIBuddy --- GeminiAI
+```
 
-- **Dedicated Seller Inventory Listing**
-  - Endpoint `GET /api/products/seller` allowing authenticated sellers to view their own product catalog.
-  - Built-in pagination (`skip` and `limit` capped at 20) with strict tenant isolation.
+### 🔁 Inter-Service Communication
 
-- **Flexible Input Sanitization & Normalization**
-  - Seamlessly handles both `application/json` and `multipart/form-data` request formats.
-  - Automatically normalizes bracketed or nested price fields (`priceAmount`, `price.amount`, `price[amount]`, `price.currency`, `price[currency]`).
-  - Validates positive price values and allowed currencies (`INR`, `USD`, defaults to `INR`).
-  - Validates trimmed product title and optional description.
+- **Synchronous (REST HTTP)**: Client ↔ Services; Order → Cart; Order → Products; Payment → Order; AI-Buddy → Products + Cart
+- **Asynchronous (RabbitMQ)**: Auth/Products/Order/Payment publish → Notification/Seller-Dashboard consume
 
-- **Atomic Creation & Resilience**
-  - If ImageKit upload encounters an error, the operation aborts without persisting phantom data to MongoDB.
+---
 
-### 🛒 Shopping Cart & Basket Management (`Cart/`)
-- **Role-Restricted Customer Access (RBAC)**
-  - Guarded by JWT authentication allowing only authenticated customers (`role: user`).
-  - Unauthorized non-customers (e.g. `seller` role) receive an explicit `403 Forbidden` response.
-  - Missing or malformed tokens return `401 Unauthorized`.
+## 📦 RabbitMQ Event Topology
 
-- **On-Demand Cart Auto-Provisioning**
-  - Automatically initializes a new empty cart document in MongoDB when a user queries or modifies their cart for the first time.
-  - Zero requirement for explicit cart creation endpoints.
+| Publisher | Queue Name                                   | Consumer         | Payload                                                     |
+| :-------- | :------------------------------------------- | :--------------- | :---------------------------------------------------------- |
+| Auth      | `AUTH_NOTIFICATION.USER_CREATED`           | Notification     | `{id, username, email, fullName}`                         |
+| Auth      | `AUTH_SELLER_DASHBOARD.USER_CREATED`       | Seller-Dashboard | Full user document                                          |
+| Products  | `PRODUCT_NOTIFICATION.PRODUCT_CREATED`     | Notification     | `{username, email, title}`                                |
+| Products  | `PRODUCT_SELLER_DASHBOARD.PRODUCT_CREATED` | Seller-Dashboard | Full product document                                       |
+| Order     | `ORDER_SELLER_DASHBOARD.ORDER_CREATED`     | Seller-Dashboard | Full order document                                         |
+| Payment   | `PAYMENT_NOTIFICATION.PAYMENT_INITIATED`   | Notification     | `{email, orderId, paymentId, amount, currency, username}` |
+| Payment   | `PAYMENT_NOTIFICATION.PAYMENT_COMPLETED`   | Notification     | `{email, orderId, paymentId, amount, currency, username}` |
+| Payment   | `PAYMENT_NOTIFICATION.PAYMENT_FAILED`      | Notification     | `{email, paymentId, orderId, username}`                   |
+| Payment   | `PAYMENT_SELLER_DASHBOARD.PAYMENT_CREATED` | Seller-Dashboard | Full payment document                                       |
+| Payment   | `PAYMENT_SELLER_DASHBOARD.PAYMENT_VERIFY`  | Seller-Dashboard | Updated payment document                                    |
 
-- **Smart Item Addition & Quantity Merging (`POST /api/cart/items`)**
-  - If a product already exists in the cart, its quantity is automatically incremented by the requested amount.
-  - If the product is not yet in the cart, a new item line is appended.
-  - Validates `productId` as a valid MongoDB ObjectId and `qty` as a positive integer.
+---
 
-- **Dynamic Quantity Modification & Auto-Pruning (`PATCH /api/cart/items/:productId`)**
-  - Updates item quantity directly.
-  - When updated with `qty <= 0`, the line item is automatically removed from the cart.
-  - Returns `404 Not Found` if the cart or the target item does not exist.
+## 📂 Full Project Structure
 
-- **Single Line-Item Removal (`DELETE /api/cart/items/:productId`)**
-  - Removes a specific product line item from the cart.
-  - Returns `404 Not Found` if the item is not found in the cart.
-
-- **Full Cart Clearance (`DELETE /api/cart`)**
-  - Empties all items from the customer's cart in a single atomic database operation.
-  - Safe execution: clearing an already-empty cart succeeds smoothly.
-
-- **Live Aggregated Totals**
-  - Every `GET /api/cart` response dynamically computes and returns:
-    - `totals.itemCount`: Total number of distinct product lines.
-    - `totals.totalQuantity`: Aggregate sum of quantities across all items.
-
-### 🧪 Automated Testing & Isolated CI/CD
-- **100% In-Memory Test Automation**: Powered by Jest, Supertest, and `mongodb-memory-server`.
-- **Offline External Service Mocks**: ImageKit SDK and Redis instances are fully mocked or fixture-isolated during test suites.
-- **113 Passed Tests across 7 suites** (34 Auth + 50 Products + 29 Cart) with zero flaky cloud dependencies.
+```text
+Vendora/
+├── README.md
+├── Auth/                           # Authentication & Identity Service (Port 3000)
+│   ├── server.js
+│   ├── jest.config.js
+│   ├── Src/
+│   │   ├── app.js
+│   │   ├── broker/broker.js        # RabbitMQ publish/subscribe client
+│   │   ├── Controllers/auth.controller.js
+│   │   ├── DataBase/
+│   │   │   ├── db.js
+│   │   │   └── redis.js
+│   │   ├── MiddleWare/
+│   │   │   ├── auth.middleware.js
+│   │   │   └── validator.middleware.js
+│   │   ├── Model/user.model.js
+│   │   └── Routes/auth.routes.js
+│   └── tests/                      # 34 integration tests
+├── Products/                       # Product Catalog & Media Service (Port 3001)
+│   ├── server.js
+│   ├── jest.config.js
+│   ├── src/
+│   │   ├── app.js
+│   │   ├── broker/broker.js
+│   │   ├── controllers/product.controller.js
+│   │   ├── database/db.js
+│   │   ├── middlewares/
+│   │   │   ├── auth.middleware.js
+│   │   │   ├── multer.middleware.js
+│   │   │   └── validator.middleware.js
+│   │   ├── models/product.model.js
+│   │   ├── routes/product.routes.js
+│   │   └── services/imagekit.service.js
+│   └── tests/                      # 50 integration tests
+├── Cart/                           # Shopping Cart Service (Port 3002)
+│   ├── server.js
+│   ├── jest.config.js
+│   ├── src/
+│   │   ├── app.js
+│   │   ├── controllers/cart.controller.js
+│   │   ├── database/db.js
+│   │   ├── middlewares/
+│   │   │   ├── auth.middleware.js
+│   │   │   └── validator.middleware.js
+│   │   ├── model/cart.model.js
+│   │   └── routes/cart.routes.js
+│   └── tests/                      # 29 integration tests
+├── Order/                          # Order Management Service (Port 3003)
+│   ├── server.js
+│   ├── jest.config.js
+│   ├── src/
+│   │   ├── app.js
+│   │   ├── broker/broker.js
+│   │   ├── controller/order.controller.js
+│   │   ├── database/db.js
+│   │   ├── middleware/
+│   │   │   ├── auth.middleware.js
+│   │   │   └── validation.middleware.js
+│   │   ├── models/order.model.js
+│   │   └── routes/order.routes.js
+│   └── tests/
+├── Payment/                        # Payment Gateway Service (Port 3004)
+│   ├── server.js
+│   └── src/
+│       ├── app.js
+│       ├── broker/broker.js
+│       ├── controller/payment.controller.js
+│       ├── database/db.js
+│       ├── middleware/auth.middleware.js
+│       ├── model/payment.model.js
+│       └── routes/payment.routes.js
+├── AI-Buddy/                       # AI Shopping Assistant Service (Port 3005)
+│   ├── server.js
+│   └── src/
+│       ├── app.js
+│       ├── agent/
+│       │   ├── agent.js            # LangGraph state machine + Gemini 2.0 Flash
+│       │   └── tool.js             # searchProduct & addProductToCart tools
+│       └── sockets/
+│           └── socket.server.js    # Socket.IO + JWT auth middleware
+├── Notification/                   # Notification Service (Port 3006)
+│   ├── server.js
+│   └── src/
+│       ├── app.js
+│       ├── email.js                # Nodemailer + Gmail OAuth2
+│       └── broker/
+│           ├── broker.js
+│           └── listners.js         # Queue subscribers → email dispatch
+└── Seller-Dashboard/               # Seller Analytics Service (Port 3007)
+    ├── server.js
+    └── src/
+        ├── app.js
+        ├── broker/
+        │   ├── broker.js
+        │   └── listener.js         # Queue subscribers → local DB sync
+        ├── controller/seller.controller.js
+        ├── database/db.js
+        ├── middleWare/auth.middleware.js
+        ├── models/
+        │   ├── user.model.js       # Read-model replica
+        │   ├── product.model.js    # Read-model replica
+        │   ├── order.model.js      # Read-model replica
+        │   └── payment.model.js    # Read-model replica
+        └── routes/seller.routes.js
+```
 
 ---
 
 ## 🛠️ Technology Stack
 
-| Layer | Technology | Details |
-| :--- | :--- | :--- |
-| **Runtime** | Node.js | Asynchronous, event-driven JavaScript runtime (v18+) |
-| **Framework** | Express.js 5.x | Next-generation web framework with native async error propagation |
-| **Primary Database** | MongoDB | Document database for accounts, addresses, products, and shopping carts |
-| **ODM** | Mongoose 9.x | Schema modeling, compound text indexing, validations, references, and hooks |
-| **Caching & Invalidation** | Redis (ioredis 6.x) | In-memory distributed store for JWT token revocation blacklists |
-| **Media Storage & CDN** | ImageKit SDK 6.x | Cloud media storage, asset optimization, and CDN delivery |
-| **File Processing** | Multer 2.x | High-throughput in-memory multipart form data streaming |
-| **Security & Auth** | JWT & Bcrypt.js | Stateless authorization tokens and salted password hashing |
-| **Validation** | express-validator 7.x | Declarative request sanitization, type coercion, and schemas |
-| **Testing Suite** | Jest & Supertest | Automated integration tests with in-memory MongoDB emulation |
+| Layer                       | Technology                   | Details                                        |
+| :-------------------------- | :--------------------------- | :--------------------------------------------- |
+| **Runtime**           | Node.js >= 18                | Asynchronous, event-driven JavaScript runtime  |
+| **Framework**         | Express.js 5.x               | Native async error propagation                 |
+| **Database**          | MongoDB + Mongoose 9.x       | Isolated DB per service; compound text indexes |
+| **Cache / Blacklist** | Redis (ioredis 6.x)          | JWT token revocation in Auth service           |
+| **Message Broker**    | RabbitMQ (amqplib 2.x)       | Durable queues, at-least-once delivery         |
+| **Media Storage**     | ImageKit SDK 6.x             | Cloud CDN for product images                   |
+| **File Upload**       | Multer 2.x                   | In-memory multipart streaming                  |
+| **Payments**          | Razorpay SDK                 | Order creation + HMAC signature verification   |
+| **AI / LLM**          | Gemini 2.0 Flash + LangGraph | Agentic shopping assistant                     |
+| **Real-time**         | Socket.IO 4.x                | WebSocket layer for AI-Buddy                   |
+| **Email**             | Nodemailer + Gmail OAuth2    | Transactional email delivery                   |
+| **Auth**              | JWT + bcryptjs               | Stateless sessions + salted hashing            |
+| **Validation**        | express-validator 7.x        | Declarative request schema validation          |
+| **Testing**           | Jest + Supertest             | In-memory MongoDB, mock external services      |
 
 ---
 
-## 📂 Project Structure
+## 1️⃣ Auth Service (`Auth/` — Port 3000)
 
-```text
-Vendora/
-├── README.md                       # Root repository documentation and guide
-├── Auth/                           # Authentication & User Management Service (Port 3000)
-│   ├── package.json                # Service dependencies and runner scripts
-│   ├── server.js                   # Application bootstrap and database connector
-│   ├── jest.config.js              # Jest configuration for integration test runs
-│   ├── Src/
-│   │   ├── app.js                  # Express app initialization and global middleware
-│   │   ├── Controllers/
-│   │   │   └── auth.controller.js  # Business logic (register, login, me, logout, addresses)
-│   │   ├── DataBase/
-│   │   │   ├── db.js               # MongoDB connection handler with DNS SRV resolver
-│   │   │   └── redis.js            # ioredis client instance and event listeners
-│   │   ├── MiddleWare/
-│   │   │   ├── auth.middleware.js  # JWT Bearer and cookie authentication guard
-│   │   │   └── validator.middleware.js # Express-validator request schemas
-│   │   ├── Model/
-│   │   │   └── user.model.js       # User & Address Mongoose schemas
-│   │   └── Routes/
-│   │       └── auth.routes.js      # Auth and address route definitions
-│   └── tests/                      # Automated integration test suites (34 tests)
-│       ├── setupDb.js              # In-memory MongoDB lifecycle fixtures
-│       ├── auth.register.test.js   # Registration endpoint test suite
-│       ├── auth.login.test.js      # Login validation and credential test suite
-│       ├── auth.me.test.js         # Profile retrieval test suite
-│       ├── auth.logout.test.js     # Redis revocation and cookie clear test suite
-│       └── auth.address.test.js    # Address book management test suite
-├── Products/                       # Product Catalog & Media Service (Port 3001)
-│   ├── package.json                # Service dependencies and runner scripts
-│   ├── server.js                   # Application bootstrap and database connector
-│   ├── jest.config.js              # Jest configuration for integration test runs
-│   ├── src/
-│   │   ├── app.js                  # Express app setup and product routing
-│   │   ├── controllers/
-│   │   │   └── product.controller.js # Product CRUD, search, filter, seller isolation & ImageKit
-│   │   ├── database/
-│   │   │   └── db.js               # MongoDB connection handler with DNS fallback
-│   │   ├── middlewares/
-│   │   │   ├── auth.middleware.js  # RBAC & JWT verification guard
-│   │   │   ├── multer.middleware.js # In-memory multipart upload parser & filter
-│   │   │   └── validator.middleware.js # Input sanitization and validation schemas
-│   │   ├── models/
-│   │   │   └── product.model.js    # Product Mongoose schema with compound text index
-│   │   ├── routes/
-│   │   │   └── product.routes.js   # Product route definitions (/api/products)
-│   │   └── services/
-│   │       └── imagekit.service.js # ImageKit SDK integration and cloud uploader
-│   └── tests/                      # Automated integration test suites (50 tests)
-│       ├── setupDb.js              # In-memory MongoDB lifecycle fixtures
-│       └── product.test.js         # Full product CRUD, search, pagination, RBAC & ImageKit tests
-└── Cart/                           # Shopping Cart & Basket Service (Port 3002)
-    ├── package.json                # Service dependencies and runner scripts
-    ├── server.js                   # Application bootstrap and database connector
-    ├── jest.config.js              # Jest configuration for integration test runs
-    ├── src/
-    │   ├── app.js                  # Express app setup, cookie-parser, and cart routes
-    │   ├── controllers/
-    │   │   └── cart.controller.js  # Cart logic (getCart, addItem, updateItem, removeItem, clearCart)
-    │   ├── database/
-    │   │   └── db.js               # MongoDB connection handler with DNS fallback
-    │   ├── middlewares/
-    │   │   ├── auth.middleware.js  # JWT Bearer and cookie authentication guard (role: user)
-    │   │   └── validator.middleware.js # Express-validator request schemas (ObjectId & qty)
-    │   ├── model/
-    │   │   └── cart.model.js       # Cart Mongoose schema (userId, items array, timestamps)
-    │   └── routes/
-    │       └── cart.routes.js      # Cart route definitions (/api/cart)
-    └── tests/                      # Automated integration test suites (29 tests)
-        ├── setupDb.js              # In-memory MongoDB lifecycle fixtures
-        └── cart.test.js            # Cart CRUD, quantity adjustment, auto-pruning & RBAC tests
-```
+Handles user registration, login, logout, profile retrieval, and shipping address management. Publishes RabbitMQ events on registration for downstream services.
 
----
+### UML Class Diagram
 
-## 📡 API Reference
-
-### 1. Authentication & Profile Endpoints (`Auth Service: 3000`)
-
-All authentication endpoints are exposed under `/api/auth` (and aliased under `/auth`).
-
-| Method | Endpoint | Auth Required | Allowed Roles | Description |
-| :--- | :--- | :---: | :---: | :--- |
-| `POST` | `/api/auth/register` | ❌ No | Any | Registers a new user or seller account. |
-| `POST` | `/api/auth/login` | ❌ No | Any | Authenticates credentials and returns JWT + cookie. |
-| `GET` | `/api/auth/me` | ✅ Yes | Any authenticated | Retrieves authenticated user profile. |
-| `GET` | `/api/auth/logout` | ✅ Yes | Any authenticated | Revokes session, blacklists token in Redis, clears cookie. |
-
-#### `POST /api/auth/register`
-**Request Body:**
-```json
-{
-  "username": "janedoe",
-  "email": "jane@example.com",
-  "password": "Password123!",
-  "fullName": {
-    "firstName": "Jane",
-    "lastName": "Doe"
-  },
-  "role": "seller" // optional: 'user' or 'seller' (default: 'user')
-}
-```
-
-#### `POST /api/auth/login`
-**Request Body (Accepts either email or username):**
-```json
-{
-  "email": "jane@example.com", // or "username": "janedoe"
-  "password": "Password123!"
-}
-```
-
----
-
-### 2. User Address Management Endpoints (`Auth Service: 3000`)
-
-| Method | Endpoint | Auth Required | Description |
-| :--- | :--- | :---: | :--- |
-| `GET` | `/api/auth/users/me/address` | ✅ Yes | Fetches all saved shipping addresses for current user. |
-| `POST` | `/api/auth/users/me/address` | ✅ Yes | Adds a new shipping address to the user profile. |
-| `DELETE` | `/api/auth/users/me/address/:addressID` | ✅ Yes | Deletes an address by its MongoDB ObjectId. |
-
-#### `POST /api/auth/users/me/address`
-**Request Body:**
-```json
-{
-  "street": "123 Market Street, Suite 400",
-  "city": "San Francisco",
-  "state": "California",
-  "pincode": "94103",
-  "phone": "9876543210",
-  "country": "United States",
-  "isDefault": true
-}
-```
-
----
-
-### 3. Product Catalog Endpoints (`Products Service: 3001`)
-
-All product endpoints are exposed under `/api/products`.
-
-| Method | Endpoint | Auth Required | Allowed Roles | Content-Type | Description |
-| :--- | :--- | :---: | :---: | :--- | :--- |
-| `POST` | `/api/products` | ✅ Yes | `admin`, `seller` | `application/json` or `multipart/form-data` | Creates a new product with optional image uploads. |
-| `GET` | `/api/products` | ❌ No | Public | N/A | Browses product catalog with full-text search, price filtering, and pagination. |
-| `GET` | `/api/products/seller` | ✅ Yes | `seller` | N/A | Retrieves all products belonging to the authenticated seller. |
-| `GET` | `/api/products/:id` | ❌ No | Public | N/A | Fetches single product details by product ID. |
-| `PATCH` | `/api/products/:id` | ✅ Yes | `seller` (Owner) | `application/json` or `multipart/form-data` | Updates product details (restricted to owning seller). |
-| `DELETE` | `/api/products/:id` | ✅ Yes | `seller` (Owner) | N/A | Deletes product from catalog (restricted to owning seller). |
-
----
-
-#### `POST /api/products` — Create Product
-
-**Headers:**
-- `Authorization: Bearer <SELLER_OR_ADMIN_JWT_TOKEN>` *(or `token` cookie)*
-- `Content-Type: multipart/form-data` (for image uploads) or `application/json`
-
-**Parameters:**
-
-| Field | Type | Required | Description |
-| :--- | :---: | :---: | :--- |
-| `title` | String | **Yes** | Product title (must not be empty or whitespace only). |
-| `description` | String | No | Detailed description of the product. |
-| `priceAmount` | Number | **Yes** | Positive product price. Also accepts `price.amount` or `price[amount]`. |
-| `priceCurrency` | String | No | Currency (`INR` or `USD`, default: `INR`). Also accepts `price.currency` or `price[currency]`. |
-| `images` | Files | No | Up to 5 image files (JPEG, PNG, WEBP, etc.). Max 5 MB each. |
-
-**Example 1: JSON Request (Without Images)**
-```bash
-curl -X POST http://localhost:3001/api/products \
-  -H "Authorization: Bearer <SELLER_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "Mechanical Keyboard",
-    "description": "RGB mechanical keyboard with blue switches",
-    "price": {
-      "amount": 2999,
-      "currency": "INR"
+```mermaid
+classDiagram
+    class User {
+        +ObjectId _id
+        +String username
+        +String email
+        +String password
+        +FullName fullName
+        +String role
+        +Address[] address
+        +Date createdAt
     }
-  }'
-```
-
-**Example 2: Multipart Form-Data (With Images)**
-```bash
-curl -X POST http://localhost:3001/api/products \
-  -H "Authorization: Bearer <SELLER_TOKEN>" \
-  -F "title=Smart Watch Pro" \
-  -F "description=AMOLED display with fitness tracking" \
-  -F "price[amount]=4999" \
-  -F "price[currency]=INR" \
-  -F "images=@watch_front.jpg" \
-  -F "images=@watch_side.png"
-```
-
-**Success Response (`201 Created`):**
-```json
-{
-  "success": true,
-  "message": "Product created successfully",
-  "product": {
-    "_id": "67471234abcd5678ef901234",
-    "title": "Smart Watch Pro",
-    "description": "AMOLED display with fitness tracking",
-    "price": {
-      "amount": 4999,
-      "currency": "INR"
-    },
-    "seller": "67470000aaaa1111bbbb2222",
-    "images": [
-      {
-        "url": "https://ik.imagekit.io/vendora/products/uuid-watch_front.jpg",
-        "thumbnail": "https://ik.imagekit.io/vendora/products/tr:n-media_library_thumbnail/uuid-watch_front.jpg",
-        "id": "67471234_file_id_1"
-      }
-    ],
-    "__v": 0
-  }
-}
-```
-
----
-
-#### `GET /api/products` — Browse, Search & Filter Catalog (Public)
-
-Public endpoint for catalog discovery. Supports full-text search, price filtering, and pagination.
-
-**Query Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-| :--- | :---: | :---: | :---: | :--- |
-| `q` | String | No | — | Full-text search keyword matching product `title` and `description`. |
-| `minPrice` | Number | No | — | Minimum price filter (`price.amount >= minPrice`). |
-| `maxPrice` | Number | No | — | Maximum price filter (`price.amount <= maxPrice`). |
-| `skip` | Number | No | `0` | Number of items to skip for pagination. |
-| `limit` | Number | No | `20` | Number of items to return per page (capped at `20`). |
-
-**Example: Search & Filtered Request**
-```bash
-curl -X GET "http://localhost:3001/api/products?q=keyboard&minPrice=1000&maxPrice=5000&skip=0&limit=10"
-```
-
-**Success Response (`200 OK`):**
-```json
-{
-  "success": true,
-  "message": "Products fetched successfully",
-  "products": [
-    {
-      "_id": "67471234abcd5678ef901234",
-      "title": "Keychron K2 Mechanical Keyboard",
-      "description": "Compact wireless mechanical keyboard with RGB backlighting",
-      "price": {
-        "amount": 2999,
-        "currency": "INR"
-      },
-      "seller": "67470000aaaa1111bbbb2222",
-      "images": []
+    class FullName {
+        +String firstName
+        +String lastName
     }
-  ]
-}
-```
-
----
-
-#### `GET /api/products/:id` — Get Product Details (Public)
-
-Retrieves full details of a specific product by its MongoDB ObjectId.
-
-**Example Request:**
-```bash
-curl -X GET http://localhost:3001/api/products/67471234abcd5678ef901234
-```
-
-**Success Response (`200 OK`):**
-```json
-{
-  "success": true,
-  "message": "Product fetched successfully",
-  "product": {
-    "_id": "67471234abcd5678ef901234",
-    "title": "Smart Watch Pro",
-    "description": "AMOLED display with fitness tracking",
-    "price": {
-      "amount": 4999,
-      "currency": "INR"
-    },
-    "seller": "67470000aaaa1111bbbb2222",
-    "images": [
-      {
-        "url": "https://ik.imagekit.io/vendora/products/uuid-watch_front.jpg",
-        "thumbnail": "https://ik.imagekit.io/vendora/products/tr:n-media_library_thumbnail/uuid-watch_front.jpg",
-        "id": "67471234_file_id_1"
-      }
-    ]
-  }
-}
-```
-
-**Error Responses:**
-- `404 Not Found`: `{ "success": false, "message": "Product not found" }`
-- `500 Internal Server Error`: Malformed ObjectId or database error.
-
----
-
-#### `GET /api/products/seller` — Get Seller's Products (Seller Only)
-
-Retrieves only products belonging to the authenticated seller, enabling vendor inventory management.
-
-**Headers:**
-- `Authorization: Bearer <SELLER_TOKEN>` *(or `token` cookie)*
-
-**Query Parameters:**
-- `skip` (Number, default: `0`): Pagination offset.
-- `limit` (Number, default: `20`, max: `20`): Items per page.
-
-**Example Request:**
-```bash
-curl -X GET "http://localhost:3001/api/products/seller?skip=0&limit=10" \
-  -H "Authorization: Bearer <SELLER_TOKEN>"
-```
-
-**Success Response (`200 OK`):**
-```json
-{
-  "success": true,
-  "message": "Seller products fetched successfully",
-  "products": [
-    {
-      "_id": "67471234abcd5678ef901234",
-      "title": "Smart Watch Pro",
-      "price": { "amount": 4999, "currency": "INR" },
-      "seller": "67470000aaaa1111bbbb2222",
-      "images": []
+    class Address {
+        +ObjectId _id
+        +String street
+        +String city
+        +String state
+        +String pincode
+        +String phone
+        +String country
+        +Boolean isDefault
     }
-  ]
-}
+    class AuthController {
+        +registerUser(req, res)
+        +loginUser(req, res)
+        +getCurrentUser(req, res)
+        +logoutUser(req, res)
+        +getUserAddresses(req, res)
+        +addUserAddress(req, res)
+        +deleteAddress(req, res)
+    }
+    class AuthMiddleware {
+        +verifyToken(req, res, next)
+        +checkBlacklist(token)
+    }
+    class RedisBroker {
+        +set(key, value, EX, ttl)
+        +get(key)
+    }
+    class RabbitBroker {
+        +connect()
+        +publishToQueue(queue, data)
+        +subscribeToQueue(queue, callback)
+    }
+    User "1" *-- "1" FullName
+    User "1" *-- "0..*" Address
+    AuthController --> User : creates/queries
+    AuthController --> RedisBroker : blacklist token on logout
+    AuthController --> RabbitBroker : publish USER_CREATED
+    AuthMiddleware --> RedisBroker : check blacklist
 ```
+
+### Sequence Diagram — Registration
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as Auth Service
+    participant DB as MongoDB
+    participant MQ as RabbitMQ
+
+    C->>A: POST /api/auth/register
+    A->>DB: findOne username OR email
+    DB-->>A: null
+    A->>A: bcrypt.hash(password)
+    A->>DB: userModel.create(...)
+    DB-->>A: user
+    A->>MQ: AUTH_NOTIFICATION.USER_CREATED
+    A->>MQ: AUTH_SELLER_DASHBOARD.USER_CREATED
+    A->>A: jwt.sign(payload, secret, 1d)
+    A-->>C: 201 + token + Set-Cookie
+```
+
+### API Endpoints
+
+| Method     | Endpoint                                  | Auth | Role | Description                    |
+| :--------- | :---------------------------------------- | :--: | :--: | :----------------------------- |
+| `POST`   | `/api/auth/register`                    |  No  | Any | Register new user/seller       |
+| `POST`   | `/api/auth/login`                       |  No  | Any | Login with email or username   |
+| `GET`    | `/api/auth/me`                          | Yes | Any | Retrieve authenticated profile |
+| `GET`    | `/api/auth/logout`                      | Yes | Any | Blacklist token, clear cookie  |
+| `GET`    | `/api/auth/users/me/address`            | Yes | Any | List shipping addresses        |
+| `POST`   | `/api/auth/users/me/address`            | Yes | Any | Add shipping address           |
+| `DELETE` | `/api/auth/users/me/address/:addressID` | Yes | Any | Delete address by ID           |
+
+### Events Published
+
+| Queue                                  | Trigger         | Consumers        |
+| :------------------------------------- | :-------------- | :--------------- |
+| `AUTH_NOTIFICATION.USER_CREATED`     | On registration | Notification     |
+| `AUTH_SELLER_DASHBOARD.USER_CREATED` | On registration | Seller-Dashboard |
 
 ---
 
-#### `PATCH /api/products/:id` — Update Product (Seller Owner Only)
+## 2️⃣ Products Service (`Products/` — Port 3001)
 
-Updates an existing product. Only the seller who created the product is authorized to modify it.
+End-to-end product lifecycle management with ImageKit cloud CDN integration, full-text search, RBAC creation, and seller ownership isolation.
 
-**Headers:**
-- `Authorization: Bearer <SELLER_TOKEN>` *(or `token` cookie)*
-- `Content-Type: application/json` or `multipart/form-data`
+### UML Class Diagram
 
-**Request Body (Allowed fields: `title`, `description`, `price`):**
-```json
-{
-  "title": "Smart Watch Pro (Upgraded Edition)",
-  "price": {
-    "amount": 5499,
-    "currency": "INR"
-  }
-}
+```mermaid
+classDiagram
+    class Product {
+        +ObjectId _id
+        +String title
+        +String description
+        +Price price
+        +ObjectId seller
+        +Image[] images
+        +index title_text_description_text
+    }
+    class Price {
+        +Number amount
+        +String currency
+    }
+    class Image {
+        +String url
+        +String thumbnail
+        +String id
+    }
+    class ProductController {
+        +createProduct(req, res)
+        +getProducts(req, res)
+        +getProductById(req, res)
+        +updateProduct(req, res)
+        +deleteProduct(req, res)
+        +getSellerProducts(req, res)
+    }
+    class ImageKitService {
+        +uploadToImageKit(file) Image
+    }
+    class MulterMiddleware {
+        +memoryStorage()
+        +fileFilter(req, file, cb)
+    }
+    class RabbitBroker {
+        +publishToQueue(queue, data)
+    }
+    Product "1" *-- "1" Price
+    Product "1" *-- "0..5" Image
+    ProductController --> Product : CRUD
+    ProductController --> ImageKitService : upload images
+    ProductController --> RabbitBroker : publish events
+    MulterMiddleware --> ProductController : parsed files
 ```
 
-**Success Response (`200 OK`):**
-```json
-{
-  "message": "Product updated successfully",
-  "product": {
-    "_id": "67471234abcd5678ef901234",
-    "title": "Smart Watch Pro (Upgraded Edition)",
-    "description": "AMOLED display with fitness tracking",
-    "price": {
-      "amount": 5499,
-      "currency": "INR"
-    },
-    "seller": "67470000aaaa1111bbbb2222"
-  }
-}
+### Sequence Diagram — Create Product with Images
+
+```mermaid
+sequenceDiagram
+    participant S as Seller
+    participant P as Products Service
+    participant IK as ImageKit CDN
+    participant DB as MongoDB
+    participant MQ as RabbitMQ
+
+    S->>P: POST /api/products (multipart/form-data)
+    P->>P: JWT verify + RBAC check seller/admin
+    P->>P: Multer in-memory parse
+    P->>IK: parallel uploadToImageKit x N
+    IK-->>P: [{url, thumbnail, id}]
+    P->>DB: productModel.create(...)
+    DB-->>P: product
+    P->>MQ: PRODUCT_SELLER_DASHBOARD.PRODUCT_CREATED
+    P->>MQ: PRODUCT_NOTIFICATION.PRODUCT_CREATED
+    P-->>S: 201 {product}
 ```
 
-**Error Responses:**
-- `400 Bad Request`: Invalid product ID format.
-- `401 Unauthorized`: Missing or invalid authentication token.
-- `403 Forbidden`: Authenticated seller does not own this product (`"You are not authorized to update this product"`).
-- `404 Not Found`: Product does not exist.
+### API Endpoints
+
+| Method     | Endpoint                 | Auth |         Role         | Description                                       |
+| :--------- | :----------------------- | :--: | :-------------------: | :------------------------------------------------ |
+| `POST`   | `/api/products`        | Yes | `seller`, `admin` | Create product with optional images               |
+| `GET`    | `/api/products`        |  No  |        Public        | Browse catalog (search, price filter, pagination) |
+| `GET`    | `/api/products/seller` | Yes |      `seller`      | List seller's own products                        |
+| `GET`    | `/api/products/:id`    |  No  |        Public        | Fetch single product details                      |
+| `PATCH`  | `/api/products/:id`    | Yes |   `seller` owner   | Update product fields                             |
+| `DELETE` | `/api/products/:id`    | Yes |   `seller` owner   | Delete product                                    |
+
+**Query params for `GET /api/products`:** `q`, `minPrice`, `maxPrice`, `skip`, `limit`
+
+### Events Published
+
+| Queue                                        | Trigger           | Consumers        |
+| :------------------------------------------- | :---------------- | :--------------- |
+| `PRODUCT_NOTIFICATION.PRODUCT_CREATED`     | On product create | Notification     |
+| `PRODUCT_SELLER_DASHBOARD.PRODUCT_CREATED` | On product create | Seller-Dashboard |
 
 ---
 
-#### `DELETE /api/products/:id` — Delete Product (Seller Owner Only)
+## 3️⃣ Cart Service (`Cart/` — Port 3002)
 
-Permanently removes a product from the database. Only the seller who created the product is authorized to delete it.
+Customer-only cart management with on-demand auto-provisioning, smart quantity merging, auto-pruning when qty <= 0, and live computed totals.
 
-**Headers:**
-- `Authorization: Bearer <SELLER_TOKEN>` *(or `token` cookie)*
+### UML Class Diagram
 
-**Example Request:**
-```bash
-curl -X DELETE http://localhost:3001/api/products/67471234abcd5678ef901234 \
-  -H "Authorization: Bearer <SELLER_TOKEN>"
+```mermaid
+classDiagram
+    class Cart {
+        +ObjectId _id
+        +ObjectId userId
+        +CartItem[] items
+        +Date createdAt
+        +Date updatedAt
+    }
+    class CartItem {
+        +ObjectId productId
+        +Number quantity
+    }
+    class CartTotals {
+        +Number itemCount
+        +Number totalQuantity
+    }
+    class CartController {
+        +getCart(req, res)
+        +addItem(req, res)
+        +updateItem(req, res)
+        +removeItem(req, res)
+        +clearCart(req, res)
+    }
+    Cart "1" *-- "0..*" CartItem
+    CartController --> Cart : CRUD
+    CartController --> CartTotals : computed on GET
 ```
 
-**Success Response (`200 OK`):**
-```json
-{
-  "success": true,
-  "message": "Product deleted successfully"
-}
+### Sequence Diagram — Add Item
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant C as Cart Service
+    participant DB as MongoDB
+
+    U->>C: POST /api/cart/items {productId, qty}
+    C->>C: JWT verify, role=user
+    C->>DB: findOne({userId})
+    alt Cart not found
+        C->>DB: Cart.create({userId, items:[]})
+    end
+    alt product already in cart
+        C->>C: item.quantity += qty
+    else new item
+        C->>C: cart.items.push({productId, qty})
+    end
+    C->>DB: cart.save()
+    C-->>U: 200 {cart}
 ```
 
-**Error Responses:**
-- `400 Bad Request`: Invalid product ID format.
-- `401 Unauthorized`: Missing or invalid authentication token.
-- `403 Forbidden`: Authenticated seller does not own this product (`"You are not authorized to delete this product"`).
-- `404 Not Found`: Product does not exist.
+### API Endpoints
+
+| Method     | Endpoint                       | Auth |   Role   | Description                       |
+| :--------- | :----------------------------- | :--: | :------: | :-------------------------------- |
+| `GET`    | `/api/cart`                  | Yes | `user` | Retrieve cart + totals            |
+| `POST`   | `/api/cart/items`            | Yes | `user` | Add / increment item              |
+| `PATCH`  | `/api/cart/items/:productId` | Yes | `user` | Set quantity (auto-prune if <= 0) |
+| `DELETE` | `/api/cart/items/:productId` | Yes | `user` | Remove specific item              |
+| `DELETE` | `/api/cart`                  | Yes | `user` | Clear entire cart                 |
 
 ---
 
-### 4. Shopping Cart Endpoints (`Cart Service: 3002`)
+## 4️⃣ Order Service (`Order/` — Port 3003)
 
-All cart endpoints are exposed under `/api/cart`. Every cart route is protected and accessible exclusively to authenticated customers (`role: user`).
+Orchestrates order creation by fetching cart (HTTP), reserving inventory (HTTP), persisting the order, and publishing to RabbitMQ. Supports retrieval, cancellation, and address updates.
 
-| Method | Endpoint | Auth Required | Allowed Roles | Description |
-| :--- | :--- | :---: | :---: | :--- |
-| `GET` | `/api/cart` | ✅ Yes | `user` | Retrieves current user's cart and calculated totals (`itemCount`, `totalQuantity`). Auto-provisions if none exists. |
-| `POST` | `/api/cart/items` | ✅ Yes | `user` | Adds an item to the cart or increments its quantity if already present. |
-| `PATCH` | `/api/cart/items/:productId` | ✅ Yes | `user` | Updates the quantity of a specific item. Automatically removes the item if `qty <= 0`. |
-| `DELETE` | `/api/cart/items/:productId` | ✅ Yes | `user` | Removes a specific product line item from the cart. |
-| `DELETE` | `/api/cart` | ✅ Yes | `user` | Clears all items from the user's cart in a single operation. |
+### UML Class Diagram
+
+```mermaid
+classDiagram
+    class Order {
+        +ObjectId _id
+        +ObjectId user
+        +OrderItem[] items
+        +String status
+        +TotalPrice totalPrice
+        +ShippingInfo shippingInfo
+    }
+    class OrderItem {
+        +ObjectId productId
+        +Number quantity
+        +ItemPrice price
+    }
+    class OrderStatus {
+        <<enumeration>>
+        PENDING
+        CONFIRMED
+        SHIPPED
+        DELIVERED
+        CANCELLED
+    }
+    class ShippingInfo {
+        +String street
+        +String city
+        +String state
+        +String zip
+        +String country
+    }
+    class OrderController {
+        +createOrder(req, res)
+        +getMyOrders(req, res)
+        +getOrderById(req, res)
+        +cancelOrderById(req, res)
+        +updateOrderAddressById(req, res)
+    }
+    Order "1" *-- "1..*" OrderItem
+    Order "1" *-- "1" ShippingInfo
+    Order --> OrderStatus
+    OrderController --> Order : CRUD
+```
+
+### Sequence Diagram — Create Order
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant O as Order Service
+    participant C as Cart Service
+    participant P as Products Service
+    participant DB as MongoDB
+    participant MQ as RabbitMQ
+
+    U->>O: POST /api/orders {shippingAddress}
+    O->>O: JWT verify, role=user
+    O->>C: GET /api/cart
+    C-->>O: {items:[...]}
+    O->>O: compute orderItems + totalPrice
+    O->>P: POST /api/inventory/reserve {items}
+    P-->>O: 200 OK
+    O->>DB: orderModel.create(...)
+    DB-->>O: order
+    O->>MQ: ORDER_SELLER_DASHBOARD.ORDER_CREATED
+    O-->>U: 201 {order}
+```
+
+### API Endpoints
+
+| Method    | Endpoint                    | Auth |        Role        | Description                    |
+| :-------- | :-------------------------- | :--: | :-----------------: | :----------------------------- |
+| `POST`  | `/api/orders`             | Yes |      `user`      | Create order from cart         |
+| `GET`   | `/api/orders/me`          | Yes |      `user`      | List own orders (paginated)    |
+| `GET`   | `/api/orders/:id`         | Yes | `user`, `admin` | Get order (ownership enforced) |
+| `POST`  | `/api/orders/:id/cancel`  | Yes |      `user`      | Cancel order                   |
+| `PATCH` | `/api/orders/:id/address` | Yes |      `user`      | Update address (PENDING only)  |
+
+### Events Published
+
+| Queue                                    | Trigger         | Consumers        |
+| :--------------------------------------- | :-------------- | :--------------- |
+| `ORDER_SELLER_DASHBOARD.ORDER_CREATED` | On order create | Seller-Dashboard |
 
 ---
 
-#### `GET /api/cart` — View Cart & Totals
+## 5️⃣ Payment Service (`Payment/` — Port 3004)
 
-Retrieves the current customer's cart. If the user does not have a cart record yet, an empty cart is automatically provisioned and returned.
+Integrates with **Razorpay** to create payment orders and verify HMAC signatures. Publishes lifecycle events to Notification and Seller-Dashboard queues.
 
-**Headers:**
-- `Authorization: Bearer <USER_JWT_TOKEN>` *(or `token` cookie)*
+### UML Class Diagram
 
-**Example Request:**
-```bash
-curl -X GET http://localhost:3002/api/cart \
-  -H "Authorization: Bearer <USER_TOKEN>"
+```mermaid
+classDiagram
+    class Payment {
+        +ObjectId _id
+        +ObjectId order
+        +String paymentId
+        +String razorpayOrderId
+        +String signature
+        +String status
+        +ObjectId user
+        +PaymentPrice price
+    }
+    class PaymentStatus {
+        <<enumeration>>
+        pending
+        completed
+        failed
+    }
+    class PaymentController {
+        +createPayment(req, res)
+        +verifyPayment(req, res)
+    }
+    class RazorpaySDK {
+        +orders.create(price)
+        +validatePaymentVerification(ids, sig, secret)
+    }
+    Payment --> PaymentStatus
+    PaymentController --> Payment : create/update
+    PaymentController --> RazorpaySDK : create order/verify
 ```
 
-**Success Response (`200 OK`):**
-```json
-{
-  "success": true,
-  "cart": {
-    "_id": "67473456abcd7890ef123456",
-    "userId": "67470000aaaa1111bbbb2222",
-    "items": [
-      {
-        "productId": "67471234abcd5678ef901234",
-        "quantity": 3,
-        "_id": "67473456abcd7890ef123457"
-      },
-      {
-        "productId": "67472222abcd5678ef909999",
-        "quantity": 2,
-        "_id": "67473456abcd7890ef123458"
-      }
-    ],
-    "createdAt": "2026-09-27T18:00:00.000Z",
-    "updatedAt": "2026-09-27T18:05:00.000Z",
-    "__v": 0
-  },
-  "totals": {
-    "itemCount": 2,
-    "totalQuantity": 5
-  }
-}
+### Sequence Diagram — Payment Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant Pay as Payment Service
+    participant O as Order Service
+    participant RZP as Razorpay
+    participant DB as MongoDB
+    participant MQ as RabbitMQ
+
+    U->>Pay: POST /api/payments/create/:orderId
+    Pay->>O: GET /api/orders/:orderId
+    O-->>Pay: {totalPrice}
+    Pay->>RZP: razorpay.orders.create(price)
+    RZP-->>Pay: razorpay order
+    Pay->>DB: paymentModel.create(...)
+    Pay->>MQ: PAYMENT_SELLER_DASHBOARD.PAYMENT_CREATED
+    Pay->>MQ: PAYMENT_NOTIFICATION.PAYMENT_INITIATED
+    Pay-->>U: 201 {payment}
+
+    Note over U,Pay: User completes Razorpay checkout
+
+    U->>Pay: POST /api/payments/verify {razorpayOrderId, paymentId, signature}
+    Pay->>Pay: validatePaymentVerification(...)
+    alt Valid
+        Pay->>DB: status = completed
+        Pay->>MQ: PAYMENT_NOTIFICATION.PAYMENT_COMPLETED
+        Pay->>MQ: PAYMENT_SELLER_DASHBOARD.PAYMENT_VERIFY
+        Pay-->>U: 200 {payment}
+    else Invalid
+        Pay->>MQ: PAYMENT_NOTIFICATION.PAYMENT_FAILED
+        Pay-->>U: 400 Invalid signature
+    end
 ```
+
+### API Endpoints
+
+| Method   | Endpoint                          | Auth |   Role   | Description              |
+| :------- | :-------------------------------- | :--: | :------: | :----------------------- |
+| `POST` | `/api/payments/create/:orderId` | Yes | `user` | Create Razorpay order    |
+| `POST` | `/api/payments/verify`          | Yes | `user` | Verify payment signature |
+
+### Events Published
+
+| Queue                                        | Trigger              | Consumers        |
+| :------------------------------------------- | :------------------- | :--------------- |
+| `PAYMENT_NOTIFICATION.PAYMENT_INITIATED`   | On payment create    | Notification     |
+| `PAYMENT_NOTIFICATION.PAYMENT_COMPLETED`   | On successful verify | Notification     |
+| `PAYMENT_NOTIFICATION.PAYMENT_FAILED`      | On verify error      | Notification     |
+| `PAYMENT_SELLER_DASHBOARD.PAYMENT_CREATED` | On payment create    | Seller-Dashboard |
+| `PAYMENT_SELLER_DASHBOARD.PAYMENT_VERIFY`  | On successful verify | Seller-Dashboard |
 
 ---
 
-#### `POST /api/cart/items` — Add Item to Cart
+## 6️⃣ AI-Buddy Service (`AI-Buddy/` — Port 3005)
 
-Adds a product to the cart. If the product is already present, its quantity is incremented by `qty`.
+A real-time AI shopping assistant powered by **Gemini 2.0 Flash** via LangGraph. Accepts messages over **Socket.IO** WebSocket, runs an agentic tool-calling loop, and streams responses back.
 
-**Headers:**
-- `Authorization: Bearer <USER_JWT_TOKEN>` *(or `token` cookie)*
-- `Content-Type: application/json`
+### UML Class Diagram
 
-**Parameters:**
-
-| Field | Type | Required | Description |
-| :--- | :---: | :---: | :--- |
-| `productId` | String | **Yes** | Valid MongoDB ObjectId of the product. |
-| `qty` | Number | **Yes** | Positive integer representing quantity to add (minimum 1). |
-
-**Example Request:**
-```bash
-curl -X POST http://localhost:3002/api/cart/items \
-  -H "Authorization: Bearer <USER_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "productId": "67471234abcd5678ef901234",
-    "qty": 2
-  }'
+```mermaid
+classDiagram
+    class SocketServer {
+        +initSocketServer(httpServer)
+        +authMiddleware(socket, next)
+        +onMessage(socket, data)
+    }
+    class LangGraphAgent {
+        +StateGraph graph
+        +compile() agent
+        +invoke(messages, config)
+    }
+    class GeminiModel {
+        +model: gemini-2.0-flash
+        +temperature: 0.5
+        +invoke(messages, tools[])
+    }
+    class SearchProductTool {
+        +name: searchProduct
+        +calls GET /api/products?q=
+    }
+    class AddToCartTool {
+        +name: addProductToCart
+        +calls POST /api/cart/items
+    }
+    class JWTMiddleware {
+        +parseCookie(handshake)
+        +jwt.verify(token, secret)
+    }
+    SocketServer --> LangGraphAgent : invoke
+    SocketServer --> JWTMiddleware : authenticate
+    LangGraphAgent --> GeminiModel : invoke
+    LangGraphAgent --> SearchProductTool : execute
+    LangGraphAgent --> AddToCartTool : execute
 ```
 
-**Success Response (`200 OK`):**
-```json
-{
-  "success": true,
-  "message": "Item added to cart",
-  "cart": {
-    "_id": "67473456abcd7890ef123456",
-    "userId": "67470000aaaa1111bbbb2222",
-    "items": [
-      {
-        "productId": "67471234abcd5678ef901234",
-        "quantity": 2,
-        "_id": "67473456abcd7890ef123457"
-      }
-    ],
-    "createdAt": "2026-09-27T18:00:00.000Z",
-    "updatedAt": "2026-09-27T18:00:00.000Z",
-    "__v": 0
-  }
-}
+### Sequence Diagram — AI Chat
+
+```mermaid
+sequenceDiagram
+    participant U as Browser
+    participant WS as Socket.IO
+    participant AG as LangGraph Agent
+    participant LLM as Gemini 2.0 Flash
+    participant P as Products :3001
+    participant C as Cart :3002
+
+    U->>WS: Connect (cookie: token)
+    WS->>WS: jwt.verify(token)
+    U->>WS: emit message "Find keyboard under 3000"
+    WS->>AG: agent.invoke({messages}, {token})
+    AG->>LLM: invoke with tools
+    LLM-->>AG: tool_call searchProduct
+    AG->>P: GET /api/products?q=keyboard
+    P-->>AG: products[]
+    AG->>LLM: invoke with results
+    LLM-->>AG: tool_call addProductToCart
+    AG->>C: POST /api/cart/items
+    C-->>AG: cart updated
+    AG->>LLM: final invoke
+    LLM-->>AG: response text
+    WS-->>U: emit message AI response
 ```
+
+### Configuration
+
+| Variable                                | Description                       |
+| :-------------------------------------- | :-------------------------------- |
+| `GOOGLE_API_KEY` / `GEMINI_API_KEY` | Google Gemini API key             |
+| `JWT_SECRET` / `JWT_SECRET_KEY`     | Shared JWT secret for socket auth |
 
 ---
 
-#### `PATCH /api/cart/items/:productId` — Update Item Quantity
+## 7️⃣ Notification Service (`Notification/` — Port 3006)
 
-Updates the quantity of a specific item in the cart. If `qty` is set to `0` or negative, the line item is automatically removed from the cart.
+A pure **event-driven consumer** with no HTTP API. Subscribes to RabbitMQ queues and dispatches transactional HTML emails via **Nodemailer** with Gmail OAuth2.
 
-**Headers:**
-- `Authorization: Bearer <USER_JWT_TOKEN>` *(or `token` cookie)*
-- `Content-Type: application/json`
+### UML Class Diagram
 
-**URL Parameters:**
-- `productId`: Valid MongoDB ObjectId of the product.
-
-**Request Body:**
-```json
-{
-  "qty": 5
-}
+```mermaid
+classDiagram
+    class NotificationApp {
+        +connect()
+        +setListeners()
+    }
+    class QueueListeners {
+        +onUserCreated(data)
+        +onPaymentInitiated(data)
+        +onPaymentCompleted(data)
+        +onPaymentFailed(data)
+        +onProductCreated(data)
+    }
+    class EmailService {
+        +transporter: Nodemailer
+        +sendEmail(to, subject, text, html)
+        +auth: Gmail OAuth2
+    }
+    class RabbitBroker {
+        +subscribeToQueue(queue, callback)
+    }
+    NotificationApp --> RabbitBroker : connect then setListeners
+    QueueListeners --> EmailService : sendEmail
+    QueueListeners --> RabbitBroker : subscribe
 ```
 
-**Success Response (Quantity Updated — `200 OK`):**
-```json
-{
-  "success": true,
-  "message": "Item quantity updated",
-  "cart": {
-    "_id": "67473456abcd7890ef123456",
-    "userId": "67470000aaaa1111bbbb2222",
-    "items": [
-      {
-        "productId": "67471234abcd5678ef901234",
-        "quantity": 5,
-        "_id": "67473456abcd7890ef123457"
-      }
-    ]
-  }
-}
+### Queue Subscriptions
+
+```mermaid
+flowchart LR
+    Q1["AUTH_NOTIFICATION.USER_CREATED"] --> E
+    Q2["PAYMENT_NOTIFICATION.PAYMENT_INITIATED"] --> E
+    Q3["PAYMENT_NOTIFICATION.PAYMENT_COMPLETED"] --> E
+    Q4["PAYMENT_NOTIFICATION.PAYMENT_FAILED"] --> E
+    Q5["PRODUCT_NOTIFICATION.PRODUCT_CREATED"] --> E
+    E["📧 Email Service\nNodemailer + Gmail OAuth2"]
 ```
 
-**Success Response (Auto-Pruned when `qty <= 0` — `200 OK`):**
-```json
-{
-  "success": true,
-  "message": "Item removed from cart",
-  "cart": {
-    "_id": "67473456abcd7890ef123456",
-    "userId": "67470000aaaa1111bbbb2222",
-    "items": []
-  }
-}
-```
+### Email Templates
 
-**Error Responses:**
-- `400 Bad Request`: Validation failure (invalid ObjectId or non-integer `qty`).
-- `404 Not Found`: Cart not found or item not present in cart (`"Item not found in cart"`).
+| Event                   | Subject                  | Key Payload Fields                   |
+| :---------------------- | :----------------------- | :----------------------------------- |
+| `AUTH...USER_CREATED` | "Welcome to our Service" | username, fullName                   |
+| `PAYMENT...INITIATED` | "Payment Initiated"      | orderId, paymentId, amount, currency |
+| `PAYMENT...COMPLETED` | "Payment Completed"      | orderId, paymentId, amount, currency |
+| `PAYMENT...FAILED`    | "Payment Failed"         | orderId, paymentId                   |
+| `PRODUCT...CREATED`   | "Product Available"      | title                                |
+
+### Environment Variables
+
+| Variable          | Description                 |
+| :---------------- | :-------------------------- |
+| `RABBIT_URL`    | RabbitMQ connection URL     |
+| `EMAIL_USER`    | Gmail account address       |
+| `CLIENT_ID`     | Google OAuth2 Client ID     |
+| `CLIENT_SECRET` | Google OAuth2 Client Secret |
+| `REFRESH_TOKEN` | Gmail OAuth2 refresh token  |
 
 ---
 
-#### `DELETE /api/cart/items/:productId` — Remove Item from Cart
+## 8️⃣ Seller-Dashboard Service (`Seller-Dashboard/` — Port 3007)
 
-Deletes an individual product line item from the cart.
+A **read-model** service that maintains a local MongoDB replica of users, products, orders, and payments synchronized from RabbitMQ events. Exposes seller analytics via protected REST API.
 
-**Headers:**
-- `Authorization: Bearer <USER_JWT_TOKEN>` *(or `token` cookie)*
+### UML Class Diagram
 
-**Example Request:**
-```bash
-curl -X DELETE http://localhost:3002/api/cart/items/67471234abcd5678ef901234 \
-  -H "Authorization: Bearer <USER_TOKEN>"
+```mermaid
+classDiagram
+    class SellerController {
+        +getMetrics(req, res)
+        +getOrders(req, res)
+        +getProducts(req, res)
+    }
+    class MetricsResponse {
+        +Number totalProducts
+        +SalesSummary sales
+        +RevenueSummary revenue
+        +TopProduct[] topProducts
+    }
+    class SalesSummary {
+        +Number totalOrders
+        +Number totalUnitsSold
+    }
+    class RevenueSummary {
+        +Number total
+        +String currency
+    }
+    class TopProduct {
+        +ObjectId productId
+        +String title
+        +Number unitsSold
+        +Number revenue
+    }
+    class QueueListener {
+        +onUserCreated(user)
+        +onProductCreated(product)
+        +onOrderCreated(order)
+        +onPaymentCreated(payment)
+        +onPaymentVerify(payment)
+    }
+    class ReadModels {
+        UserModel
+        ProductModel
+        OrderModel
+        PaymentModel
+    }
+    SellerController --> ReadModels : aggregate queries
+    QueueListener --> ReadModels : upsert docs
+    MetricsResponse "1" *-- "1" SalesSummary
+    MetricsResponse "1" *-- "1" RevenueSummary
+    MetricsResponse "1" *-- "0..*" TopProduct
 ```
 
-**Success Response (`200 OK`):**
-```json
-{
-  "success": true,
-  "message": "Item removed from cart",
-  "cart": {
-    "_id": "67473456abcd7890ef123456",
-    "userId": "67470000aaaa1111bbbb2222",
-    "items": []
-  }
-}
+### Sequence Diagram — getMetrics
+
+```mermaid
+sequenceDiagram
+    participant S as Seller
+    participant SD as Seller-Dashboard
+    participant DB as Local MongoDB
+
+    S->>SD: GET /api/seller/metrics
+    SD->>SD: JWT verify + role=seller
+    SD->>DB: productModel.find({seller})
+    DB-->>SD: productIds[]
+    SD->>DB: orderModel.aggregate([unwind, match, facet])
+    Note over SD,DB: facet: summary (revenue+units), topProducts
+    DB-->>SD: aggregated data
+    SD-->>S: 200 {totalProducts, sales, revenue, topProducts}
 ```
 
-**Error Responses:**
-- `400 Bad Request`: Invalid `productId` format.
-- `404 Not Found`: Item not found in cart.
+### API Endpoints
+
+| Method  | Endpoint                 | Auth |    Role    | Description                          |
+| :------ | :----------------------- | :--: | :--------: | :----------------------------------- |
+| `GET` | `/api/seller/metrics`  | Yes | `seller` | Sales metrics, revenue, top products |
+| `GET` | `/api/seller/orders`   | Yes | `seller` | Orders containing seller's products  |
+| `GET` | `/api/seller/products` | Yes | `seller` | Seller's products (local replica)    |
+
+### Queue Subscriptions & Actions
+
+| Queue                                        | Action                                 |
+| :------------------------------------------- | :------------------------------------- |
+| `AUTH_SELLER_DASHBOARD.USER_CREATED`       | `userModel.create(user)`             |
+| `PRODUCT_SELLER_DASHBOARD.PRODUCT_CREATED` | `productModel.create(product)`       |
+| `ORDER_SELLER_DASHBOARD.ORDER_CREATED`     | `orderModel.create(order)`           |
+| `PAYMENT_SELLER_DASHBOARD.PAYMENT_CREATED` | `paymentModel.create(payment)`       |
+| `PAYMENT_SELLER_DASHBOARD.PAYMENT_VERIFY`  | `paymentModel.findOneAndUpdate(...)` |
 
 ---
 
-#### `DELETE /api/cart` — Clear Cart
+## 🗄️ Database Schemas
 
-Removes all items from the customer's cart in a single atomic database operation.
+### Auth — User & Address
 
-**Headers:**
-- `Authorization: Bearer <USER_JWT_TOKEN>` *(or `token` cookie)*
-
-**Example Request:**
-```bash
-curl -X DELETE http://localhost:3002/api/cart \
-  -H "Authorization: Bearer <USER_TOKEN>"
+```javascript
+const addressSchema = new mongoose.Schema({
+  street: String, city: String, state: String,
+  pincode: String, phone: String,
+  country: { type: String, default: 'India' },
+  isDefault: { type: Boolean, default: false }
+});
+const userSchema = new mongoose.Schema({
+  username: { type: String, unique: true, lowercase: true },
+  email:    { type: String, unique: true, lowercase: true },
+  password: { type: String, select: false },
+  fullName: { firstName: String, lastName: String },
+  role:     { type: String, enum: ['user', 'seller'], default: 'user' },
+  address:  [addressSchema]
+}, { timestamps: true });
 ```
 
-**Success Response (`200 OK`):**
-```json
-{
-  "success": true,
-  "message": "Cart cleared successfully",
-  "cart": {
-    "_id": "67473456abcd7890ef123456",
-    "userId": "67470000aaaa1111bbbb2222",
-    "items": []
-  }
-}
-```
+### Products — Product
 
----
-
-### 🗄️ Database Schemas
-
-#### User & Address Schema (`Auth/`)
-- **User**: `username` (unique, lowercase), `email` (unique, lowercase), `password` (hashed with bcrypt), `fullName` (`firstName`, `lastName`), `role` (`user`, `seller`), `addresses` (array of embedded Address documents).
-- **Address**: `street`, `city`, `state`, `pincode`, `phone`, `country`, `isDefault` (boolean).
-
-#### Product Schema (`Products/`)
 ```javascript
 const productSchema = new mongoose.Schema({
-  title: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  description: {
-    type: String,
-    default: ""
-  },
-  price: {
-    amount: {
-      type: Number,
-      required: true
-    },
-    currency: {
-      type: String,
-      enum: ["INR", "USD"],
-      default: "INR"
-    }
-  },
-  seller: {
-    type: mongoose.Schema.Types.ObjectId,
-    required: true
-  },
-  images: [
-    {
-      url: { type: String },
-      thumbnail: { type: String },
-      id: { type: String }
-    }
-  ]
+  title:       { type: String, required: true, trim: true },
+  description: { type: String, default: '' },
+  price:       { amount: { type: Number, required: true }, currency: { type: String, enum: ['INR','USD'], default: 'INR' } },
+  seller:      { type: mongoose.Schema.Types.ObjectId, required: true },
+  images:      [{ url: String, thumbnail: String, id: String }]
 });
-
-// Compound full-text search index on title and description
-productSchema.index({ title: "text", description: "text" });
+productSchema.index({ title: 'text', description: 'text' });
 ```
 
-#### Cart Schema (`Cart/`)
+### Cart — Cart
+
 ```javascript
 const cartSchema = new mongoose.Schema({
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    required: true
-  },
-  items: [
-    {
-      productId: {
-        type: mongoose.Schema.Types.ObjectId,
-        required: true
-      },
-      quantity: {
-        type: Number,
-        required: true,
-        min: 1
-      }
-    }
-  ]
+  userId: { type: mongoose.Schema.Types.ObjectId, required: true },
+  items:  [{ productId: mongoose.Schema.Types.ObjectId, quantity: { type: Number, min: 1 } }]
+}, { timestamps: true });
+```
+
+### Order — Order
+
+```javascript
+const orderSchema = new mongoose.Schema({
+  user:        { type: mongoose.Schema.Types.ObjectId, required: true },
+  items:       [{ productId: mongoose.Schema.Types.ObjectId, quantity: Number,
+                  price: { amount: Number, currency: { type: String, enum: ['INR','USD'] } } }],
+  status:      { type: String, enum: ['PENDING','CONFIRMED','SHIPPED','DELIVERED','CANCELLED'], default: 'PENDING' },
+  totalPrice:  { amount: Number, currency: { type: String, enum: ['INR','USD'] } },
+  shippingInfo:{ street: String, city: String, state: String, zip: String, country: String }
+}, { timestamp: true });
+```
+
+### Payment — Payment
+
+```javascript
+const paymentSchema = new mongoose.Schema({
+  order:           { type: mongoose.Schema.Types.ObjectId, required: true },
+  paymentId:       String,
+  razorpayOrderId: { type: String, required: true },
+  signature:       String,
+  status:          { type: String, enum: ['pending','completed','failed'], default: 'pending' },
+  user:            { type: mongoose.Schema.Types.ObjectId, required: true },
+  price:           { amount: { type: Number, required: true }, currency: { type: String, enum: ['INR','USD'], default: 'INR' } }
 }, { timestamps: true });
 ```
 
@@ -869,174 +1020,162 @@ const cartSchema = new mongoose.Schema({
 
 ### Prerequisites
 
-Ensure you have the following installed on your development machine:
-- [Node.js](https://nodejs.org/) (`v18` or higher recommended)
-- [npm](https://www.npmjs.com/) (`v9` or higher)
-- [MongoDB](https://www.mongodb.com/) (Local instance or MongoDB Atlas cluster)
-- [Redis](https://redis.io/) (Local server or Cloud Redis instance for Auth service)
-- [ImageKit Account](https://imagekit.io/) (API credentials for Products service)
+- [Node.js](https://nodejs.org/) >= v18
+- [MongoDB](https://www.mongodb.com/) — Atlas or local
+- [Redis](https://redis.io/) — Auth service only
+- [RabbitMQ](https://www.rabbitmq.com/) — all event-driven services
+- [ImageKit](https://imagekit.io/) — Products service
+- [Razorpay](https://razorpay.com/) — Payment service
+- [Google Cloud OAuth2](https://console.cloud.google.com/) — Notification service
+- [Google Gemini API Key](https://ai.google.dev/) — AI-Buddy service
 
-### Installation & Setup
+### Service Startup
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/itsam-13/Vendora.git
-   cd Vendora
-   ```
+```bash
+git clone https://github.com/itsam-13/Vendora.git
+cd Vendora
+```
 
-2. **Setup the Authentication Service:**
-   ```bash
-   cd Auth
-   npm install
-   ```
-   Create an `Auth/.env` file:
-   ```ini
-   PORT=3000
-   NODE_ENV=development
-   MONGO_URI=mongodb+srv://<username>:<password>@cluster0.example.mongodb.net/VendoraAuth?retryWrites=true&w=majority
-   JWT_SECRET_KEY=your_shared_jwt_secret_key_here
-   REDIS_HOST=127.0.0.1
-   REDIS_PORT=6379
-   REDIS_PASSWORD=
-   ```
-   Run Auth Service:
-   ```bash
-   npm run dev
-   ```
-   *The Auth service will listen on `http://localhost:3000`.*
+| Service          | Command                                | Port |
+| :--------------- | :------------------------------------- | :--: |
+| Auth             | `cd Auth && npm run dev`             | 3000 |
+| Products         | `cd Products && npm run dev`         | 3001 |
+| Cart             | `cd Cart && npm run dev`             | 3002 |
+| Order            | `cd Order && npm run dev`            | 3003 |
+| Payment          | `cd Payment && npm run dev`          | 3004 |
+| AI-Buddy         | `cd AI-Buddy && npm run dev`         | 3005 |
+| Notification     | `cd Notification && npm run dev`     | 3006 |
+| Seller-Dashboard | `cd Seller-Dashboard && npm run dev` | 3007 |
 
-3. **Setup the Products Service:**
-   ```bash
-   cd ../Products
-   npm install
-   ```
-   Create a `Products/.env` file:
-   ```ini
-   PORT=3001
-   NODE_ENV=development
-   MONGO_URI=mongodb+srv://<username>:<password>@cluster0.example.mongodb.net/VendoraProducts?retryWrites=true&w=majority
-   JWT_SECRET_KEY=your_shared_jwt_secret_key_here
-   IMAGEKIT_PUBLIC_KEY=your_imagekit_public_key
-   IMAGEKIT_PRIVATE_KEY=your_imagekit_private_key
-   IMAGEKIT_URL_ENDPOINT=https://ik.imagekit.io/your_endpoint_id
-   ```
-   Run Products Service:
-   ```bash
-   npm run dev
-   ```
-   *The Products service will listen on `http://localhost:3001`.*
+### Environment Variables per Service
 
-4. **Setup the Cart Service:**
-   ```bash
-   cd ../Cart
-   npm install
-   ```
-   Create a `Cart/.env` file:
-   ```ini
-   PORT=3002
-   NODE_ENV=development
-   MONGO_URI=mongodb+srv://<username>:<password>@cluster0.example.mongodb.net/VendoraCart?retryWrites=true&w=majority
-   JWT_SECRET_KEY=your_shared_jwt_secret_key_here
-   ```
-   Run Cart Service:
-   ```bash
-   npm run dev
-   ```
-   *The Cart service will listen on `http://localhost:3002`.*
+#### `Auth/.env`
+
+```ini
+PORT=3000
+NODE_ENV=development
+MONGO_URI=mongodb+srv://<user>:<pass>@cluster.mongodb.net/VendoraAuth
+JWT_SECRET_KEY=your_shared_jwt_secret
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+REDIS_PASSWORD=
+RABBIT_URL=amqp://localhost
+```
+
+#### `Products/.env`
+
+```ini
+PORT=3001
+NODE_ENV=development
+MONGO_URI=mongodb+srv://<user>:<pass>@cluster.mongodb.net/VendoraProducts
+JWT_SECRET_KEY=your_shared_jwt_secret
+IMAGEKIT_PUBLIC_KEY=your_imagekit_public_key
+IMAGEKIT_PRIVATE_KEY=your_imagekit_private_key
+IMAGEKIT_URL_ENDPOINT=https://ik.imagekit.io/your_endpoint
+RABBIT_URL=amqp://localhost
+```
+
+#### `Cart/.env`
+
+```ini
+PORT=3002
+NODE_ENV=development
+MONGO_URI=mongodb+srv://<user>:<pass>@cluster.mongodb.net/VendoraCart
+JWT_SECRET_KEY=your_shared_jwt_secret
+```
+
+#### `Order/.env`
+
+```ini
+PORT=3003
+NODE_ENV=development
+MONGO_URI=mongodb+srv://<user>:<pass>@cluster.mongodb.net/VendoraOrder
+JWT_SECRET_KEY=your_shared_jwt_secret
+RABBIT_URL=amqp://localhost
+CART_SERVICE_URL=http://localhost:3002
+INVENTORY_SERVICE_URL=http://localhost:3001
+```
+
+#### `Payment/.env`
+
+```ini
+PORT=3004
+NODE_ENV=development
+MONGO_URI=mongodb+srv://<user>:<pass>@cluster.mongodb.net/VendoraPayment
+JWT_SECRET_KEY=your_shared_jwt_secret
+RABBIT_URL=amqp://localhost
+RAZORPAY_KEY_ID=rzp_test_xxxxx
+RAZORPAY_KEY_SECRET=your_razorpay_secret
+```
+
+#### `AI-Buddy/.env`
+
+```ini
+PORT=3005
+GOOGLE_API_KEY=your_gemini_api_key
+JWT_SECRET=your_shared_jwt_secret
+```
+
+#### `Notification/.env`
+
+```ini
+PORT=3006
+RABBIT_URL=amqp://localhost
+EMAIL_USER=your_gmail@gmail.com
+CLIENT_ID=your_google_oauth_client_id
+CLIENT_SECRET=your_google_oauth_client_secret
+REFRESH_TOKEN=your_gmail_refresh_token
+```
+
+#### `Seller-Dashboard/.env`
+
+```ini
+PORT=3007
+NODE_ENV=development
+MONGO_URI=mongodb+srv://<user>:<pass>@cluster.mongodb.net/VendoraSellerDash
+JWT_SECRET_KEY=your_shared_jwt_secret
+RABBIT_URL=amqp://localhost
+```
+
+> **Important:** All services share the **same `JWT_SECRET_KEY`** so that tokens issued by Auth are accepted by every downstream service.
+
+> **Note:** Each service uses its **own MongoDB database**. The Seller-Dashboard maintains read-model replicas synchronized via RabbitMQ — never via direct cross-service DB access.
 
 ---
 
-## 🧪 Testing & Code Quality
+## 🧪 Testing
 
-All three microservices include independent, isolated integration test suites using `Jest`, `Supertest`, and in-memory MongoDB (`mongodb-memory-server`). No live database, Redis cluster, or ImageKit account is needed to run the tests.
+| Service         |               Tests |       Suites |
+| :-------------- | ------------------: | -----------: |
+| Auth            |                  34 |            5 |
+| Products        |                  50 |            1 |
+| Cart            |                  29 |            1 |
+| Order           | (integration tests) |            1 |
+| **Total** |      **113+** | **8+** |
 
-### Running Auth Service Tests
 ```bash
-cd Auth
-npm test
+cd Auth && npm test      # 34 tests, 5 suites
+cd Products && npm test  # 50 tests, 1 suite
+cd Cart && npm test      # 29 tests, 1 suite
+cd Order && npm test     # integration tests
 ```
-```text
-PASS  tests/auth.address.test.js  (6 tests)
-PASS  tests/auth.login.test.js    (11 tests)
-PASS  tests/auth.logout.test.js   (10 tests)
-PASS  tests/auth.register.test.js (4 tests)
-PASS  tests/auth.me.test.js       (3 tests)
-
-Test Suites: 5 passed, 5 total
-Tests:       34 passed, 34 total
-Snapshots:   0 total
-Time:        5.405 s
-```
-
-### Running Products Service Tests
-```bash
-cd Products
-npm test
-```
-```text
-PASS tests/product.test.js
-  POST /api/products/ - Create Product API
-    Authentication and Role Authorization (3 tests)
-    Request Validation (express-validator) (4 tests)
-    Product Creation with JSON Payload (3 tests)
-    Product Creation with Multer & ImageKit Image Uploads (3 tests)
-  GET /api/products - Get Products API
-    Basic Fetching & Public Access (3 tests)
-    Pagination (skip and limit) (5 tests)
-    Price Range Filtering (minPrice and maxPrice) (4 tests)
-    Text Search (q) (4 tests)
-    Combined Queries (Search + Price Filter + Pagination) (2 tests)
-    Error Handling (1 test)
-  GET /api/products/:id - Get Product By ID API (5 tests)
-  PATCH /api/products/:id - Update Product API (SELLER) (4 tests)
-  DELETE /api/products/:id - Delete Product API (SELLER) (5 tests)
-  GET /api/products/seller - Get Seller Products API (SELLER) (4 tests)
-
-Test Suites: 1 passed, 1 total
-Tests:       50 passed, 50 total
-Snapshots:   0 total
-Time:        1.811 s
-```
-
-### Running Cart Service Tests
-```bash
-cd Cart
-npm test
-```
-```text
-PASS tests/cart.test.js
-  GET /api/cart (5 tests)
-  POST /api/cart/items (7 tests)
-  PATCH /api/cart/items/:productId (7 tests)
-  DELETE /api/cart/items/:productId (5 tests)
-  DELETE /api/cart (5 tests)
-
-Test Suites: 1 passed, 1 total
-Tests:       29 passed, 29 total
-Snapshots:   0 total
-Time:        1.588 s
-```
-
-### Combined Test Summary
-- **Total Test Suites**: 7 passed, 7 total
-- **Total Tests**: 113 passed, 113 total (100% pass rate)
-  - **Auth Service**: 34 passed (5 suites)
-  - **Products Service**: 50 passed (1 suite)
-  - **Cart Service**: 29 passed (1 suite)
 
 ---
 
-## 🗺️ Roadmap & Next Milestones
+## 🗺️ Roadmap
 
-Vendora is actively being expanded with the following planned services:
-
-- [x] **Authentication & Identity Service** (Registration, Login, Redis revocation, Address book)
-- [x] **Product Catalog Service — Phase 1** (Catalog creation, RBAC, express-validator schemas, Multer & ImageKit media pipeline)
-- [x] **Product Catalog Service — Phase 2** (Public browsing, pagination, compound full-text search, price filters, product details by ID, seller updates, seller deletion, seller dashboard inventory)
-- [x] **Cart & Wishlist Service** (Persistent customer shopping carts, item quantity management, auto-provisioning, live totals)
-- [ ] **Order & Fulfillment Service** (State machine for order lifecycles and tracking)
-- [ ] **Payment & Checkout Gateway** (Stripe / Razorpay webhooks and multi-vendor escrow disbursements)
-- [ ] **API Gateway & Rate Limiting** (Unified reverse proxy, central authorization routing, request throttling)
+- [X] **Auth Service** — JWT, Redis blacklist, address book
+- [X] **Products Service** — RBAC, ImageKit CDN, full-text search, pagination
+- [X] **Cart Service** — Smart merging, auto-pruning, live totals
+- [X] **Order Service** — Cart fetch, inventory reserve, lifecycle management
+- [X] **Payment Service** — Razorpay integration, HMAC signature verification
+- [X] **AI-Buddy Service** — Gemini 2.0 Flash agentic assistant, Socket.IO, tool-calling
+- [X] **Notification Service** — Event-driven email with Gmail OAuth2
+- [X] **Seller-Dashboard Service** — Read-model analytics, revenue metrics, top products
+- [ ] **API Gateway** — Unified reverse proxy, central auth routing, rate limiting
+- [ ] **Inventory Service** — Stock tracking and reservation management
+- [ ] **Review & Rating Service** — Product reviews with seller reputation scoring
+- [ ] **Docker Compose** — Full containerization for local development
 
 ---
 
