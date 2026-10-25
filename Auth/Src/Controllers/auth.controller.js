@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const userModel = require('../Model/user.model');
 const redis = require('../DataBase/redis');
+const { publishToQueue } = require('../broker/broker')
 
 async function registerUser(req, res) {
   try {
@@ -38,8 +39,17 @@ async function registerUser(req, res) {
       role: role || 'user'
     });
 
+    //publish user created event to rabbitmq
+    await publishToQueue('AUTH_NOTIFICATION.USER_CREATED', {
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      fullName: user.fullName
+    });
+
     // Generating JWT Token
     const jwtSecret = process.env.JWT_SECRET || process.env.JWT_SECRET_KEY || 'default_jwt_secret';
+
     const token = jwt.sign({
       id: user._id,
       username: user.username,
