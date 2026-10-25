@@ -24,7 +24,7 @@ transporter.verify((error, success) => {
 const sendEmail = async (to, subject, text, html) => {
     try {
         const info = await transporter.sendMail({
-            from: `"Your Name" <${process.env.EMAIL_USER}>`, // sender address
+            from: `"Vendora" <${process.env.EMAIL_USER}>`, // sender address
             to, // list of receivers
             subject, // Subject line
             text, // plain text body
@@ -37,6 +37,5 @@ const sendEmail = async (to, subject, text, html) => {
         console.error('Error sending email:', error);
     }
 };
-sendEmail('sachanutsav800@gmail.com', 'Test Subject', 'Test Text', '<p>Test HTML</p>');
 
-module.exports = sendEmail;
+module.exports = { sendEmail };

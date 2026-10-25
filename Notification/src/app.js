@@ -1,9 +1,12 @@
 const express = require('express');
-const { connect } = require('./broker/broker')
+const { connect, subscribeToQueue } = require('./broker/broker')
+const setListeners = require('./broker/listners')
 
 const app = express();
 
-connect();
+connect().then(() => {
+    setListeners()
+})
 
 app.use(express.json());
 
