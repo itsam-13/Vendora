@@ -39,13 +39,16 @@ async function registerUser(req, res) {
       role: role || 'user'
     });
 
-    //publish user created event to rabbitmq
-    await publishToQueue('AUTH_NOTIFICATION.USER_CREATED', {
-      id: user._id,
-      username: user.username,
-      email: user.email,
-      fullName: user.fullName
-    });
+    //publish events to rabbitmq
+    await Promise.all([
+      publishToQueue('AUTH_NOTIFICATION.USER_CREATED', {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        fullName: user.fullName
+      }),
+     publishToQueue('AUTH_SELLER_DASHBOARD.USER_CREATED', user)
+    ])
 
     // Generating JWT Token
     const jwtSecret = process.env.JWT_SECRET || process.env.JWT_SECRET_KEY || 'default_jwt_secret';
